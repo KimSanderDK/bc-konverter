@@ -1,0 +1,2677 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>BC Prisliste Konverter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #f7f7f5;
+  color: #1a1a1a;
+  margin: 0;
+  padding: 2rem 1rem;
+  line-height: 1.5;
+}
+.container {
+  max-width: 640px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+h1 { font-size: 20px; font-weight: 500; margin: 0 0 0.5rem; }
+.subtitle { color: #666; font-size: 14px; margin: 0 0 2rem; }
+.step { display: none; }
+.step.active { display: block; }
+.steps-indicator { display: flex; gap: 8px; margin-bottom: 1.5rem; align-items: center; }
+.step-dot { width: 8px; height: 8px; border-radius: 50%; background: #d0d0d0; transition: all 0.2s; }
+.step-dot.done { background: #1a1a1a; }
+.step-dot.active { background: #1a1a1a; width: 20px; border-radius: 4px; }
+.field-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.field-row label { font-size: 13px; color: #666; font-weight: 500; }
+select, input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: white;
+}
+select:focus, input:focus { outline: none; border-color: #1a1a1a; }
+.section-title { font-size: 15px; font-weight: 500; margin: 0 0 16px; }
+.btn-primary {
+  background: #1a1a1a; color: white; border: none;
+  padding: 10px 20px; border-radius: 8px; font-size: 14px;
+  cursor: pointer; font-weight: 500; text-decoration: none;
+  display: inline-block; font-family: inherit;
+}
+.btn-primary:hover { opacity: 0.85; }
+.btn-secondary {
+  background: transparent; border: 1px solid #d0d0d0;
+  padding: 10px 20px; border-radius: 8px; font-size: 14px;
+  cursor: pointer; color: #1a1a1a; font-family: inherit;
+}
+.btn-secondary:hover { background: #f0f0f0; }
+.drop-zone {
+  border: 2px dashed #d0d0d0; border-radius: 12px;
+  padding: 3rem 1rem; text-align: center; cursor: pointer;
+  transition: all 0.15s;
+}
+.drop-zone:hover, .drop-zone.dragover { background: #f7f7f5; border-color: #888; }
+.progress-bar { height: 4px; background: #eee; border-radius: 2px; margin: 1rem 0; overflow: hidden; }
+.progress-fill { height: 100%; background: #1a1a1a; border-radius: 2px; transition: width 0.3s; }
+.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 1rem; }
+.metric { background: #f7f7f5; border-radius: 8px; padding: 1rem; }
+.metric .val { font-size: 28px; font-weight: 500; }
+.metric .lbl { font-size: 13px; color: #666; margin-top: 2px; }
+.card {
+  background: #fafaf8; border: 1px solid #ececec;
+  border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem;
+}
+.error-box {
+  background: #fee; border: 1px solid #fcc; border-radius: 8px;
+  padding: 12px; font-size: 13px; color: #c00; margin-top: 1rem;
+}
+.info-box {
+  background: #e6f1fb; border: 1px solid #b5d4f4; border-radius: 8px;
+  padding: 12px; font-size: 13px; color: #0c447c; margin-top: 1rem;
+}
+.file-info { margin-top: 12px; font-size: 13px; color: #666; }
+footer {
+  text-align: center; color: #999; font-size: 12px;
+  margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee;
+}
+
+/* === Login overlay (v2.1) === */
+#loginOverlay {
+  position: fixed; inset: 0; background: #f7f7f5;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 1rem;
+}
+.login-card {
+  background: white; border-radius: 12px; padding: 2rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  width: 100%; max-width: 360px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.login-card h2 { font-size: 18px; font-weight: 500; margin: 0; text-align: center; }
+.login-card .login-sub { color: #666; font-size: 13px; margin: 0 0 8px; text-align: center; }
+.login-card input[type="email"],
+.login-card input[type="password"] {
+  width: 100%; padding: 10px 12px; border: 1px solid #d0d0d0;
+  border-radius: 8px; font-size: 14px; font-family: inherit; background: white;
+}
+.login-card input:focus { outline: none; border-color: #1a1a1a; }
+.login-logo { width: 56px; height: auto; align-self: center; margin-bottom: 4px; }
+.login-card .btn-primary { width: 100%; margin-top: 4px; }
+.login-card .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Logout-knap + brugerbadge i header */
+#userBar {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 10px; margin-bottom: 0.75rem; font-size: 12px; color: #666;
+}
+#userBar button {
+  background: transparent; border: 1px solid #d0d0d0;
+  padding: 6px 12px; border-radius: 8px; font-size: 12px;
+  cursor: pointer; color: #666; font-family: inherit;
+}
+#userBar button:hover { background: #f0f0f0; color: #1a1a1a; }
+#userBar button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Cloud-status indikator (v2.6) */
+#cloudStatus {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-right: auto; padding: 4px 8px;
+  border-radius: 12px; background: #f7f7f5; font-size: 11px;
+}
+.cloud-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+}
+.cloud-dot-idle    { background: #c0c0c0; }
+.cloud-dot-ok      { background: #28a745; }
+.cloud-dot-syncing { background: #f0ad4e; animation: pulse 1s ease-in-out infinite; }
+.cloud-dot-error   { background: #dc3545; }
+@keyframes pulse { 50% { opacity: 0.4; } }
+/* Loading overlay (v2.2) */
+#loadingOverlay {
+  position: fixed; inset: 0; background: #f7f7f5;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 2rem 1rem;
+}
+.spinner {
+  width: 32px; height: 32px; margin: 0 auto 1rem;
+  border: 3px solid #ececec; border-top-color: #1a1a1a;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<!-- Login overlay (v2.1) — vises indtil auth er afklaret -->
+<div id="loginOverlay">
+  <div class="login-card">
+    <img src="" alt="Intersign" class="login-logo" id="loginLogoImg">
+    <h2>BC Konverter</h2>
+    <p class="login-sub">Log ind med din InterSign-konto</p>
+    <input type="email" id="loginEmail" placeholder="Email" autocomplete="username" autocapitalize="off">
+    <input type="password" id="loginPassword" placeholder="Adgangskode" autocomplete="current-password">
+    <button class="btn-primary" id="loginBtn" type="button">Log ind</button>
+    <div id="loginError" class="error-box" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- Loading overlay (v2.2) — vises mens master data hentes efter login -->
+<div id="loadingOverlay" style="display:none;">
+  <div class="login-card" style="text-align:center;">
+    <div class="spinner"></div>
+    <p id="loadingMsg" style="font-size:14px; color:#666; margin: 0 0 0.5rem;">Indlæser dine data...</p>
+    <div id="loadingError" class="error-box" style="display:none; text-align:left;"></div>
+    <button class="btn-secondary" id="loadingRetryBtn" type="button" style="display:none; margin-top: 12px;">Prøv igen</button>
+  </div>
+</div>
+
+<div class="container" id="appContainer" style="display:none;">
+  <div id="userBar">
+    <span id="cloudStatus" title="">
+      <span id="cloudStatusDot" class="cloud-dot cloud-dot-idle"></span>
+      <span id="cloudStatusText"></span>
+    </span>
+    <span id="userEmail"></span>
+    <button id="forceResyncBtn" type="button" title="Genuploader alle lokale data til cloud (sikkerhedsnet hvis noget kommer ud af sync)">Force re-sync</button>
+    <button id="logoutBtn" type="button">Log ud</button>
+  </div>
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">
+    <div>
+      <h1 style="margin: 0 0 0.5rem;">Business Central prisliste konverter</h1>
+      <p class="subtitle" style="margin: 0;">Konverter leverandørprislister til BC-klar format</p>
+    </div>
+    <img src="data:image/png;base64,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" alt="Intersign logo" style="height: 48px; width: auto; flex-shrink: 0;">
+  </div>
+
+  <div class="steps-indicator">
+    <div class="step-dot active" id="dot0"></div>
+    <div class="step-dot" id="dot1"></div>
+    <div class="step-dot" id="dot2"></div>
+    <div class="step-dot" id="dot3"></div>
+  </div>
+
+  <div class="step active" id="step0">
+    <div class="field-row">
+      <label style="font-size: 14px; color: #1a1a1a; font-weight: 500;">Leverandør-profil</label>
+      <select id="profileSelect">
+        <option value="">Vælg profil...</option>
+      </select>
+      <div style="font-size: 12px; color: #666; margin-top: 4px;">
+        Profilen bestemmer hvilke faner og kolonner der læses fra prislisten.
+      </div>
+    </div>
+
+    <p class="section-title" style="margin-top: 1.5rem;">1. Upload prisliste</p>
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <div style="font-size: 14px; color: #666; margin-bottom: 8px;">Klik eller træk en Excel- eller CSV-fil hertil</div>
+      <div style="font-size: 12px; color: #999;">.xlsx og .csv filer understøttes</div>
+    </div>
+    <input type="file" id="fileInput" accept=".xlsx,.csv" style="display:none">
+    <div id="fileInfo" style="display:none;" class="file-info"></div>
+    <div id="fileError" style="display:none;" class="error-box"></div>
+    <div id="profileInfo" style="display:none;" class="info-box"></div>
+
+    <div id="whitelistSection" style="display:none; margin-top: 1.5rem; padding: 1rem; background: #fafaf8; border: 1px solid #ececec; border-radius: 8px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+        <label style="font-size: 14px; color: #1a1a1a; font-weight: 500; cursor: pointer; user-select: none;">
+          <input type="checkbox" id="useWhitelistToggle" style="margin-right: 8px; vertical-align: middle;">
+          Brug positiv-liste
+        </label>
+        <span id="whitelistMatchInfo" style="font-size: 12px; color: #999;"></span>
+      </div>
+      <p style="font-size: 12px; color: #666; margin: 0 0 10px;">
+        Kun varer i prislisten hvis EAN/identifier findes i positiv-listen, bliver medtaget.
+      </p>
+      <div id="whitelistUploadRow" style="display:none;">
+        <button class="btn-secondary" onclick="document.getElementById('whitelistInput').click()" style="padding: 6px 14px; font-size: 13px;">Upload positiv-liste</button>
+        <input type="file" id="whitelistInput" accept=".xlsx,.csv" style="display:none">
+        <span id="whitelistFileInfo" style="font-size: 12px; color: #666; margin-left: 10px;"></span>
+      </div>
+      <div id="whitelistError" style="display:none;" class="error-box"></div>
+    </div>
+
+    <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #eee;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <p class="section-title" style="margin: 0;">Master data</p>
+        <span id="masterDataStatus" style="font-size: 12px; color: #999;">Indlæser...</span>
+      </div>
+      <p style="font-size: 13px; color: #666; margin: 0 0 12px;">
+        Upload en ny master data-fil for at opdatere lister over leverandører, kategorier m.m.
+        Dataen gemmes lokalt i din browser — du skal kun uploade igen når noget er ændret.
+      </p>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+        <button class="btn-secondary" onclick="document.getElementById('masterInput').click()">Opdater master data</button>
+        <input type="file" id="masterInput" accept=".xlsx" style="display:none">
+        <button class="btn-secondary" id="resetMasterBtn" onclick="resetMasterData()" style="display:none;">Nulstil til default</button>
+      </div>
+      <div id="masterError" style="display:none;" class="error-box"></div>
+      <div id="masterSuccess" style="display:none; background: #e8f5e8; border: 1px solid #c0dd97; border-radius: 8px; padding: 12px; font-size: 13px; color: #27500a; margin-top: 1rem;"></div>
+    </div>
+
+    <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #eee;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <p class="section-title" style="margin: 0;">Shopify-kategorier (hukommelse)</p>
+        <span id="categoryStatus" style="font-size: 12px; color: #999;">—</span>
+      </div>
+      <p style="font-size: 13px; color: #666; margin: 0 0 12px;">
+        Upload enten en udfyldt BC-fil (vores 21-kolonne output) eller en Shopify Category-eksport fra BC (11-kolonne format).
+        Appen læser kategorierne pr. EAN og udfylder dem automatisk i fremtidige konverteringer.
+      </p>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+        <button class="btn-secondary" onclick="document.getElementById('categoryInput').click()">Gem kategorier fra BC-fil</button>
+        <input type="file" id="categoryInput" accept=".xlsx" style="display:none">
+        <button class="btn-secondary" onclick="exportCategoryBackup()">Eksportér backup</button>
+        <button class="btn-secondary" onclick="document.getElementById('categoryRestoreInput').click()">Importér backup</button>
+        <input type="file" id="categoryRestoreInput" accept=".xlsx" style="display:none">
+        <button class="btn-secondary" onclick="clearCategoryMemory()" style="color: #c00;">Ryd hukommelse</button>
+      </div>
+      <div id="categoryError" style="display:none;" class="error-box"></div>
+      <div id="categorySuccess" style="display:none; background: #e8f5e8; border: 1px solid #c0dd97; border-radius: 8px; padding: 12px; font-size: 13px; color: #27500a; margin-top: 1rem;"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step1">
+    <p class="section-title">2. Leverandøroplysninger</p>
+    <p style="font-size: 13px; color: #666; margin-bottom: 1.5rem;">
+      Disse værdier gælder for <strong>alle</strong> varer i prislisten.
+    </p>
+
+    <div class="field-row">
+      <label>F — Vendor (leverandør)</label>
+      <select id="vendorSelect"><option value="">Vælg leverandør...</option></select>
+    </div>
+    <div class="field-row">
+      <label>C — Brand Code</label>
+      <select id="brandCode"><option value="">Vælg brand...</option></select>
+    </div>
+    <div class="field-row">
+      <label>J — Item Category Code</label>
+      <select id="itemCatSelect"><option value="">Vælg kategori...</option></select>
+    </div>
+    <div class="field-row">
+      <label>K — Price/Profit Calculation</label>
+      <select id="ppcSelect">
+        <option value="No Relationship">No Relationship</option>
+        <option value="Price=Profit-Cost">Price=Profit-Cost</option>
+        <option value="Price=Cost+Profit">Price=Cost+Profit</option>
+      </select>
+    </div>
+    <div class="field-row">
+      <label id="exchangeRateLabel">Valutakurs (EUR → DKK)</label>
+      <input type="text" id="exchangeRate" value="7.5">
+      <div id="exchangeRateHint" style="font-size: 12px; color: #666; margin-top: 4px; display: none;"></div>
+    </div>
+    <div class="field-row">
+      <label>Leverandørrabat % <span style="color:#999; font-weight:400;">(trækkes fra prislistens pris)</span></label>
+      <input type="text" id="vendorDiscount" value="0">
+      <div id="vendorDiscountHint" style="font-size: 12px; color: #666; margin-top: 4px;">Hvis prislistens pris er vejl. udsalg (MSRP/UVP), kan rabatten trækkes automatisk.</div>
+    </div>
+    <div class="field-row">
+      <label>L — Profit % <span style="color:#c00;">*</span></label>
+      <input type="text" id="profitPct" placeholder="f.eks. 15">
+    </div>
+    <div class="field-row">
+      <label>M — Discount % Tier 1 <span style="color:#999; font-weight:400;">(valgfri)</span></label>
+      <input type="text" id="discountT1" placeholder="Tomt hvis ikke relevant">
+    </div>
+    <div class="field-row">
+      <label>N — Discount % Tier 2 <span style="color:#999; font-weight:400;">(valgfri)</span></label>
+      <input type="text" id="discountT2" placeholder="Tomt hvis ikke relevant">
+    </div>
+    <div class="field-row">
+      <label>I — Shipping Cost <span style="color:#999; font-weight:400;">(valgfri)</span></label>
+      <div style="display: flex; gap: 8px; align-items: stretch;">
+        <select id="shippingMode" style="flex: 0 0 180px;">
+          <option value="none">Ingen</option>
+          <option value="fixed">Fast pris (DKK)</option>
+          <option value="percent">Procent af Cost Price</option>
+        </select>
+        <input type="text" id="shippingValue" placeholder="" style="flex: 1;" disabled>
+      </div>
+      <div style="font-size: 12px; color: #666; margin-top: 4px;" id="shippingHint">Vælg en mode for at indtaste en værdi.</div>
+    </div>
+
+    <div style="display: flex; gap: 8px; margin-top: 1rem;">
+      <button class="btn-secondary" onclick="goStep(0)">Tilbage</button>
+      <button class="btn-primary" onclick="validateStep1()">Fortsæt</button>
+    </div>
+  </div>
+
+  <div class="step" id="step2">
+    <p class="section-title">3. Konverterer...</p>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+    <div id="progressText" style="font-size: 13px; color: #666;">Behandler prisliste...</div>
+  </div>
+
+  <div class="step" id="step3">
+    <p class="section-title">4. Klar til download</p>
+    <div class="summary-grid">
+      <div class="metric"><div class="val" id="totalCount">0</div><div class="lbl">Varer i alt</div></div>
+      <div class="metric"><div class="val" id="newCount">0</div><div class="lbl">Nye varer (NEW)</div></div>
+      <div class="metric"><div class="val" id="eolCount">0</div><div class="lbl">EOL filtreret fra</div></div>
+      <div class="metric"><div class="val" id="nopriceCount">0</div><div class="lbl">Uden pris filtreret</div></div>
+    </div>
+    <div class="card">
+      <div style="font-size: 13px; color: #666; margin-bottom: 8px;">Indstillinger brugt</div>
+      <div id="settingsSummary" style="font-size: 13px; line-height: 1.8;"></div>
+    </div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <button class="btn-primary" id="downloadBtn">Download BC-fil</button>
+      <button class="btn-secondary" onclick="resetAll()">Konverter ny prisliste</button>
+    </div>
+  </div>
+
+  <footer id="versionFooter">Version 2.6 — cloud-status indikator + force re-sync</footer>
+</div>
+
+<script>
+// Default master data — bruges hvis brugeren ikke har uploadet en master data-fil
+const DEFAULT_VENDORS = ["AD SERIES DISPLAYS ## 8700055520","Alletiders Regnskab & Bogførin ## 60451775","ALPI Danmark A/S ## 97212166","Also a/s ## 43558888","ALSO FINLAND ## 3583213611","API Europe GmbH (Ab Distribution) ## 0241917040","Arrow Central Europe GmbH ## 1189633737","Atea A/S ## 70252550","Atradius ## 33265233","Audito ## 98332902","AV Partner AS ## 22231112","Av-Cables.dk ## 88704086","AV-Connection A/S ## 74421078","BDO Statsaut. revisionsaktiese ## 89307800","Bisnode ## 70220410","Blue Water Shipping A/S ## 99303190","Bluefin International Inc ## 2089083451","Bluestar Europe Distribution  ## 880233633","BrightSign LLC ## 4088529263","Brix Smedeforretning I/S ## 86821906","Business College Syd ## 73425525","Børsen Forlaget A/S ## 33433000","CA Service ## 60173936","CAPTECH DISTRIBUTION AB ## 858884100","Cardeg Electronics Aps ## 70226688","CC&CO. ## 99299929","CEshop B.V ## KRE-ICECAT","Cloudeon A/S ## 70701133","Codan Forsikring ## 33553880","Computer City ## 70158000","Computersalg A/S ## 56361200","Dagbladet Børsen ## 33324242","Danske Fragtmænd Silkeborg ## 86825222","Danske Fragtmænd Aarhus ## 72527801","DCS ## 70222505","Deltaco A/S ## 38869171","DHL Express ## 36905200","DISPLAX, S.A. ## 351253141500","DIVERSE KREDITORER ## 11","DK Hostmaster A/S ## 70239070","DSV A/S ## 33423342","Dumets International BV ## 541538224","EET A/S ## 45821919","EHT Fabrik SIA ## 67933733","Elfa Distrelec A/S ## 86246422","Elitecom ApS ## 71745745","EnergiMidt Net A/S ## 86805900","Eniig ## 70151061","F9 Distribution OY ## 41092801","Feda Electronics Company Ltd. ## 8523590972","FedEx SCS ## 402922951","FiberLAN A/S ## 70230903","Fibia ## 36058552","Fujitsu Sweden AB ## 087937000","Fullrate A/S ## 32154500","Glory Star Group Ltd. ## 8522376280","Handest EL-Teknik  ## 52525544","Hannspree Europe Holdings BV ## 49 2159 814 57 127","Holmes ApS ## 41278182-1","Hopestar ## 82579059","House Of Innovation ## 70702800","Hörmann Danmark A/S ## 86437222","IBG Proreact ApS ## 20832084","IC Intracom Italia spa ## 0434735573","IC INTRACOM Vertriebs GmbH ## 4331621199","iiyama International ## 3120446040","INGRAM MICRO A/S ## 45165680","Inventus Group A/S ## 87400200","J J Transport ## 20238990","Jarltech  ## JARLTECH","JE Laserskæring ApS ## 75450307","JEHE Technology Limited ## 7553330033","JWIPC TECHNOLOGY  CO., LTD ## 0086185075","Jysk Regnskabsservice ApS ## 22202079","Kapsolo Europe ApS ## 40405311","KERCHAN TECHNOLOGY CO. LTD. ## 8675523327","KioWare Europe Limited ## 1189766404","LCD DENMARK P/S ## 99999999","LG Electronics Nordic AB ## 5565756383","LG Electronics Nordic AB ## SE-DIRECT","Lilliput Electronic Technology  ## 5962109323","LITEMAX ELECTRONICS INC ## 8862891918","LME Brunbjergvej ApS ## 24406624","Lomax A/S ## 47368040","Lyngsøe EDB A/S ## 86812644","Media Connect ApS ## 70255585","MM-Vision A/S ## 70221744","Nexcom International Co. Ltd. ## 8862822677","Nordic Screen ## 71926222","NSI ELECTRONIC APS ## 87454600","NTG Nordic transport ## 26777626","Omega Security Service ## 86815561"];
+
+const DEFAULT_ITEM_CATS = ["ACCESSORIES","ARMAGARDE","AUDIO","BLUEFIN","BRIGHTSIGN SOFTWARE","CABLES","COMPLETE SYSTEMS","ELEGANCE","ENCLOSURE","FRAGT","GLORYSTAR","HANNSPREE","IIYAMA","KERCHAN","LG","MICROSOFT","MISC ENCLOSURE","MISC SCREENS","MISC SOFTWARE","MISC TABLETS","MOUNTS","NEC","PLAYERS","SCREENS","SIGNAL","SOFTWARE","TABLETS"];
+
+const DEFAULT_SHOPIFY_CATS = ["Aio/ACCESSIORIES","Aio/ANDROID","Aio/BRIGHTSIGN","Aio/TABLET","Aio/WINDOWS","AUDIO","Audio/ACCESSORIES","Audio/AMPLIFIER","Audio/AVIO-DANTE","Audio/DSP","Audio/SPEAKER","CABLES","Cables/AUDIO","Cables/COMPUTER","Cables/DISPLAY","Cables/POWER","Dispaly/OLED","DISPLAY","Display/12-18 HOURS","Display/24 HOURS","Display/ACCESSORIES","Display/DESKTOP","Display/HIGH BRIGHTNESS","Display/HOSPITALITY TV","Display/LED","Display/OUTDOOR","Display/STRETCH","Display/TOUCH SCREENS","Display/VIDEO WALL","Display/WARRANTY","DISPLAYER","Displayer/FRAMED","Displayer/OPEN FRAME","Displayer/STRETCH","Latest Products","MOUNTS","Mounts/CEILING","Mounts/DESK","Mounts/FLOOR","Mounts/VIDEO WALL","Mounts/WALL","PLAYER","Player/ACCESSORIES","Player/ANDROID","Player/BRIGHTSIGN","Player/LINUX","Player/OPS","Player/WINDOWS","PROJECTOR","Projector/ACCESSORIES","Projector/PROFESSIONAL","SIGNAL MANAGEMENT","Signal/EXTENDER","Signal/IO CONTROL","Signal/IO Control/ACCESSORIES","Signal/IO Control/AUDIO SENSORS","Signal/IO Control/BUTTONS","Signal/IO Control/CONTROLLER","Signal/IO Control/INTERFACE / CABLES","Signal/IO Control/LED LIGHTING","Signal/IO Control/PEOPLE TRACKING","Signal/IO Control/PICK-UP SENSORS","Signal/IO Control/VISUAL SENSORS","Signal/ROUTER","Signal/SPLITTER","Signal/VIDEO WALL","SOFTWARE","Software/OPERATING SYSTEM","Software/SIGNAGE","Special/Audio/Amplifier/100V","Special/Audio/Amplifier/MULTI CHANNEL","Special/Audio/Amplifier/NETWORKED","Special/Audio/Amplifier/WIRELESS","Special/Audio/FOCUS POINT","Special/Audio/INVISIBLE","Special/Audio/NETWORKED","Special/Audio/OUTDOOR","Special/Audio/Speaker/FOCUS POINT","Special/Audio/Speaker/IN-CEILING","Special/Audio/Speaker/INVISIBLE","Special/Audio/Speaker/NETWORKED","Special/Audio/Speaker/OUTDOOR","Special/Audio/Speaker/PENDANT","Special/HANGING","Stand/ACCESSORIES","Stand/ENCLOSURE","Stand/INDOOR","Stand/OUTDOOR","STOCK SALE"];
+
+const DEFAULT_PPC = ["No Relationship","Price=Profit-Cost","Price=Cost+Profit"];
+
+const DEFAULT_BRANDS = ["Adept Audio","Adseries","Advantech","Allsee Technologies","ALPHA","Ambisonic","Amina","Apacer","Armagard","ArtCoustic","AskCody","Atlona","Audac","Audinate","AudioControl","AVProEdge","Biamp","Bluefin","BrightSign","B-SYSTEM","C2G","CalDigit","Caymon","Chief","Cisco","Club3D","Crucial","CUSTOM","CyberPower","Da-Lite","Deltaco","Displax","Eglobal","Elegance","Epson","Fibocom","Focusonics","Fully Factory GmbH","Giada","Glory Star","Goobay","Hannspree","Hisense","Holmes","Honeywell","HUDDLY","Hynix","ID Tech","iDisplay","IDP","iiyama","InfoTV","INOGENI","Integra","Intel","InterFjord","Intersign","Jabra","JWIPC","KAPSOLO","Kerchan Technology","Kingston","KioWare","Kioxia","LCD","LEA Professional","Lenovo","LG","Lilliput","LinkGen","Lissau","LiteOn","Logilink","Logitech","Luxul","Manhattan","MAXHUB","Measy","MediaConnect","MicroConnect","MICRON","Microsoft","Middle Atlantic","Multibrackets","MyWall","NEC","Netgear","Newland","Nexmosphere","Nippon Primex","Optoma","Origin Acoustics","Panphonics","Partteam","People Of Lava","PhaseTech","Philips","Phison","PM991A","PNY","POS-C","Pro Signal","Procab","Qoltec","Q-Play","Realtek","Refee","Renkforce","RisingStar","RS Components","RTI","Samsung","SanDisk","Sanus","SCP","Screenage","SEADA","Sennheiser","Sharp","Silicon Power","SimCom","SmartMetals","SolidDrive","SoundTube","Star","Super Rod","Techly","Teltonika","Theatrixx","TiGHT AV","TLD Electronics","Toshiba","Union Memory","Vaddio","Vector","Verbatim","Viewcon","Visaton","Vivolink","Vogels","VSSL","Western Digital","WiiM","Zhiwei"];
+
+const DEFAULT_PROFILES = [
+  {
+    name: 'iiyama',
+    sheets: ['TOUCH <32"', 'LFD IFP TOUCH'],
+    headerSearch: 'ean',
+    colDescription: 'specifications',
+    colDescriptionFallback: '',
+    colProductItemNo: 'ean code',
+    colGTIN: 'ean code',
+    colVendorModel: 'model',
+    colCostPrice: 'your price',
+    colShippingCost: '',
+    colStatus: 'price',
+    eolMarkers: ['EOL'],
+    newMarkers: ['NEW'],
+    currency: 'EUR',
+    currencyRate: 7.5,
+    defaultDiscount: 0,
+    defaultBrand: 'iiyama',
+    defaultVendor: 'iiyama International ## 3120446040',
+    defaultItemCat: 'IIYAMA',
+    defaultPPC: 'No Relationship',
+    useWhitelist: false,
+    whitelistMatchColumn: 'ean code'
+  },
+  {
+    name: 'B-System',
+    sheets: ['Imago'],
+    headerSearch: 'ean',
+    colDescription: 'title en',
+    colDescriptionFallback: '',
+    colProductItemNo: 'ean',
+    colGTIN: 'ean',
+    colVendorModel: 'sku',
+    colCostPrice: 'distributor',
+    colShippingCost: '',
+    colStatus: '',
+    eolMarkers: [],
+    newMarkers: [],
+    currency: 'EUR',
+    currencyRate: 7.5,
+    defaultDiscount: 0,
+    defaultBrand: 'B-SYSTEM',
+    defaultVendor: 'B-SYSTEM GmbH ## 7420889889',
+    defaultItemCat: 'MOUNTS',
+    defaultPPC: 'No Relationship',
+    useWhitelist: true,
+    whitelistMatchColumn: 'ean'
+  },
+  {
+    name: 'Trigono - Netgear',
+    sheets: ['811223_SKU'],
+    headerSearch: 'ean',
+    colDescription: 'benamning',
+    colDescriptionFallback: '',
+    colProductItemNo: 'ean',
+    colGTIN: 'ean',
+    colVendorModel: 'tillv_artnr',
+    colCostPrice: 'afnetto_ert_pris',
+    colShippingCost: '',
+    colStatus: '',
+    eolMarkers: [],
+    newMarkers: [],
+    currency: 'EUR',
+    currencyRate: 7.5,
+    defaultDiscount: 0,
+    defaultBrand: 'Netgear',
+    defaultVendor: 'Trigono ## 768 85 05 50',
+    defaultItemCat: 'SIGNAL',
+    defaultPPC: 'No Relationship',
+    useWhitelist: true,
+    whitelistMatchColumn: 'ean'
+  },
+  {
+    name: 'Hisense',
+    sheets: ['Signage&VW&WF', 'DigitalBoard', 'AIO'],
+    headerSearch: 'ean',
+    colDescription: 'description',
+    colDescriptionFallback: 'size',
+    colProductItemNo: 'ean code',
+    colGTIN: 'ean code',
+    colVendorModel: 'model',
+    colCostPrice: 'distribution price',
+    colShippingCost: '',
+    colStatus: 'availability',
+    eolMarkers: ['EOL'],
+    newMarkers: ['NEW'],
+    currency: 'EUR',
+    currencyRate: 7.5,
+    defaultDiscount: 0,
+    defaultBrand: 'Hisense',
+    defaultVendor: 'Hisense Nordics A/S ## K00440',
+    defaultItemCat: 'SCREENS',
+    defaultPPC: 'No Relationship',
+    useWhitelist: false,
+    whitelistMatchColumn: 'ean code'
+  },
+  {
+    name: 'Origin Acoustics',
+    sheets: ['csv'],
+    headerSearch: 'ean',
+    colDescription: 'description',
+    colDescriptionFallback: '',
+    colProductItemNo: 'ean (upc) code',
+    colGTIN: 'ean (upc) code',
+    colVendorModel: 'item number',
+    colCostPrice: 'cost price',
+    colShippingCost: '',
+    colStatus: 'product status',
+    eolMarkers: [],
+    newMarkers: [],
+    currency: 'USD',
+    currencyRate: 6.85,
+    defaultDiscount: 0,
+    defaultBrand: 'Origin Acoustics',
+    defaultVendor: 'Origin Acoustics USA ## K00090',
+    defaultItemCat: 'AUDIO',
+    defaultPPC: 'No Relationship',
+    useWhitelist: true,
+    whitelistMatchColumn: 'ean (upc) code'
+  },
+  {
+    name: 'Chief',
+    sheets: ['ERP UPLOAD LIST'],
+    headerSearch: 'ean',
+    colDescription: 'description',
+    colDescriptionFallback: '',
+    colProductItemNo: 'upc',
+    colGTIN: 'upc',
+    colVendorModel: 'model',
+    colCostPrice: 'msrp',
+    colShippingCost: '',
+    colStatus: 'changes',
+    eolMarkers: ['Discontinued', 'Removed from EMEA catalog'],
+    newMarkers: ['New', 'Item code change'],
+    currency: 'EUR',
+    currencyRate: 7.5,
+    defaultDiscount: 50,
+    defaultBrand: 'Chief',
+    defaultVendor: 'Legrand AV EMEA ## 709100199',
+    defaultItemCat: 'MOUNTS',
+    defaultPPC: 'No Relationship',
+    useWhitelist: true,
+    whitelistMatchColumn: 'upc'
+  }
+];
+
+// Aktiv master data (loades fra localStorage eller defaults)
+let VENDORS = [...DEFAULT_VENDORS];
+let ITEM_CATS = [...DEFAULT_ITEM_CATS];
+let SHOPIFY_CATS = [...DEFAULT_SHOPIFY_CATS];
+let PPC_OPTIONS = [...DEFAULT_PPC];
+let BRANDS = [...DEFAULT_BRANDS];
+let PROFILES = DEFAULT_PROFILES.map(p => ({...p}));
+
+const STORAGE_KEY = 'bc_master_data_v7';
+const PROFIT_KEY = 'bc_profit_memory_v1';
+
+// In-memory cache (v2.3) — fyldes ved login, så loadProfitMemory() forbliver synkron.
+let _profileMemoryCache = {};
+
+function loadProfitMemory() {
+  // Returnerer cache — synkron API bevares for resten af koden.
+  return _profileMemoryCache;
+}
+
+function saveProfitMemory(profileName, values) {
+  // 1) Opdater cache synkront
+  _profileMemoryCache[profileName] = values;
+  // 2) Skriv til localStorage som backup
+  try {
+    localStorage.setItem(PROFIT_KEY, JSON.stringify(_profileMemoryCache));
+  } catch(e) { console.warn('Kunne ikke gemme profit memory lokalt:', e); }
+  // 3) Skriv til Supabase asynkront — fire-and-forget med logging
+  // Brugeren skal ikke vente på cloud før Step 2 starter.
+  saveProfileMemoryToSupabase(profileName, values).catch(e => {
+    console.warn('Cloud-gemning af profit memory fejlede (lokal backup OK):', e);
+  });
+}
+
+// === Supabase profile_memory (v2.3) ===
+// Helper: konverter tom streng/undefined til null før DB-skrivning (numeric kolonner).
+function _ptn(v) {
+  if (v === '' || v === undefined) return null;
+  return v;
+}
+
+// === Cloud-status tracking (v2.6) ===
+// Sporer aktive cloud-operationer og opdaterer UI-indikator i header.
+// Tilstande: 'idle' (initial), 'syncing' (≥1 pending), 'ok' (sidste lykkedes), 'error' (sidste fejlede).
+let _cloudPending = 0;
+let _cloudHasError = false;
+let _cloudLastError = '';
+let _cloudLastSuccess = null; // Timestamp for sidste succesfulde operation
+
+function _setCloudStatus(state, opt) {
+  const dot = document.getElementById('cloudStatusDot');
+  const txt = document.getElementById('cloudStatusText');
+  if (!dot || !txt) return;
+  dot.className = 'cloud-dot cloud-dot-' + state;
+  if (state === 'syncing') txt.textContent = 'Synkroniserer…';
+  else if (state === 'ok') txt.textContent = 'Cloud OK';
+  else if (state === 'error') txt.textContent = 'Cloud-fejl';
+  else txt.textContent = '';
+  txt.title = opt && opt.detail ? opt.detail : '';
+  dot.title = opt && opt.detail ? opt.detail : '';
+}
+
+function _refreshCloudStatusUI() {
+  if (_cloudPending > 0) {
+    _setCloudStatus('syncing');
+  } else if (_cloudHasError) {
+    _setCloudStatus('error', { detail: 'Sidste fejl: ' + _cloudLastError });
+  } else if (_cloudLastSuccess) {
+    _setCloudStatus('ok', { detail: 'Sidste sync: ' + _cloudLastSuccess.toLocaleTimeString('da-DK') });
+  } else {
+    _setCloudStatus('idle');
+  }
+}
+
+// Generisk wrapper for alle cloud-funktioner. Inkrementerer pending-tæller før kald,
+// registrerer success/fejl, og opdaterer UI.
+async function _cloud(fn) {
+  _cloudPending++;
+  _refreshCloudStatusUI();
+  try {
+    const r = await fn();
+    _cloudHasError = false;
+    _cloudLastSuccess = new Date();
+    return r;
+  } catch (e) {
+    _cloudHasError = true;
+    _cloudLastError = e && e.message ? e.message : String(e);
+    throw e;
+  } finally {
+    _cloudPending--;
+    _refreshCloudStatusUI();
+  }
+}
+
+// Hent al profile memory for nuværende bruger og returner som objekt
+// keyed by profile_name (matcher localStorage-strukturen).
+async function loadProfileMemoryFromSupabase() {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('profile_memory')
+      .select('profile_name, profit_pct, discount_t1, discount_t2, vendor_discount, shipping_mode, shipping_value')
+      .eq('user_id', currentUser.id);
+    if (error) throw error;
+    const result = {};
+    for (const row of (data || [])) {
+      const obj = {};
+      if (row.profit_pct !== null)      obj.profit = Number(row.profit_pct);
+      if (row.discount_t1 !== null)     obj.discountT1 = Number(row.discount_t1);
+      if (row.discount_t2 !== null)     obj.discountT2 = Number(row.discount_t2);
+      if (row.vendor_discount !== null) obj.vendorDiscount = Number(row.vendor_discount);
+      if (row.shipping_mode !== null)   obj.shippingMode = row.shipping_mode;
+      if (row.shipping_value !== null)  obj.shippingValue = Number(row.shipping_value);
+      result[row.profile_name] = obj;
+    }
+    return result;
+  });
+}
+
+// Upsert én profils memory.
+async function saveProfileMemoryToSupabase(profileName, values) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { error } = await supa
+      .from('profile_memory')
+      .upsert({
+        user_id: currentUser.id,
+        profile_name: profileName,
+        profit_pct:      _ptn(values.profit),
+        discount_t1:     _ptn(values.discountT1),
+        discount_t2:     _ptn(values.discountT2),
+        vendor_discount: _ptn(values.vendorDiscount),
+        shipping_mode:   values.shippingMode || null,
+        shipping_value:  _ptn(values.shippingValue)
+      }, { onConflict: 'user_id,profile_name' });
+    if (error) throw error;
+  });
+}
+
+// Batch-upload alle profiler (bruges af auto-lift).
+async function uploadAllProfileMemoryToSupabase(memObj) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const rows = Object.keys(memObj).map(profileName => {
+      const v = memObj[profileName] || {};
+      return {
+        user_id: currentUser.id,
+        profile_name: profileName,
+        profit_pct:      _ptn(v.profit),
+        discount_t1:     _ptn(v.discountT1),
+        discount_t2:     _ptn(v.discountT2),
+        vendor_discount: _ptn(v.vendorDiscount),
+        shipping_mode:   v.shippingMode || null,
+        shipping_value:  _ptn(v.shippingValue)
+      };
+    });
+    if (rows.length === 0) return;
+    const { error } = await supa
+      .from('profile_memory')
+      .upsert(rows, { onConflict: 'user_id,profile_name' });
+    if (error) throw error;
+  });
+}
+
+// Koordinerer profile memory ved login. Samme mønster som initMasterData.
+//   1) Forsøg load fra Supabase
+//   2) Hvis tom: tjek localStorage → batch-upload (auto-lift)
+//   3) Hvis stadig tom: cache forbliver tom (fresh start)
+async function initProfileMemory() {
+  // 1) Supabase
+  const sbMem = await loadProfileMemoryFromSupabase();
+  if (Object.keys(sbMem).length > 0) {
+    _profileMemoryCache = sbMem;
+    return 'supabase';
+  }
+  // 2) Auto-lift fra localStorage
+  let localMem = {};
+  try {
+    const raw = localStorage.getItem(PROFIT_KEY);
+    if (raw) localMem = JSON.parse(raw) || {};
+  } catch(e) { console.warn('Kunne ikke læse profit memory fra localStorage:', e); }
+
+  if (Object.keys(localMem).length > 0) {
+    _profileMemoryCache = localMem;
+    try {
+      await uploadAllProfileMemoryToSupabase(localMem);
+      return 'lifted';
+    } catch (e) {
+      console.warn('Auto-lift af profit memory fejlede:', e);
+      return 'local-fallback';
+    }
+  }
+  // 3) Tom — fresh start
+  _profileMemoryCache = {};
+  return 'empty';
+}
+
+// Currency rates: { 'USD': 6.85, 'EUR': 7.5 } — global per currency, not per profile.
+// All currencies are editable; defaults below are seeded if no value has been saved yet.
+const CURRENCY_KEY = 'bc_currency_rates_v1';
+const CURRENCY_DEFAULTS = { 'EUR': 7.5 };
+
+// In-memory cache (v2.4) — fyldes ved login, så getCurrencyRate() forbliver synkron.
+let _currencyRatesCache = {};
+
+function loadCurrencyRates() {
+  // Returnerer cache — synkron API bevares for resten af koden.
+  return _currencyRatesCache;
+}
+
+function getCurrencyRate(currency) {
+  const c = (currency || 'EUR').toUpperCase();
+  const saved = loadCurrencyRates();
+  if (saved[c] !== undefined) return saved[c];
+  if (CURRENCY_DEFAULTS[c] !== undefined) return CURRENCY_DEFAULTS[c];
+  return '';
+}
+
+function saveCurrencyRate(currency, rate) {
+  const c = (currency || 'EUR').toUpperCase();
+  // 1) Opdater cache synkront
+  _currencyRatesCache[c] = rate;
+  // 2) Skriv til localStorage som backup
+  try {
+    localStorage.setItem(CURRENCY_KEY, JSON.stringify(_currencyRatesCache));
+  } catch(e) { console.warn('Kunne ikke gemme currency rate lokalt:', e); }
+  // 3) Skriv til Supabase asynkront — fire-and-forget
+  saveCurrencyRateToSupabase(c, rate).catch(e => {
+    console.warn('Cloud-gemning af currency rate fejlede (lokal backup OK):', e);
+  });
+}
+
+// === Supabase currency_rates (v2.4) ===
+async function loadCurrencyRatesFromSupabase() {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('currency_rates')
+      .select('currency, rate')
+      .eq('user_id', currentUser.id);
+    if (error) throw error;
+    const result = {};
+    for (const row of (data || [])) {
+      result[row.currency] = Number(row.rate);
+    }
+    return result;
+  });
+}
+
+async function saveCurrencyRateToSupabase(currency, rate) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { error } = await supa
+      .from('currency_rates')
+      .upsert({
+        user_id: currentUser.id,
+        currency: currency,
+        rate: rate
+      }, { onConflict: 'user_id,currency' });
+    if (error) throw error;
+  });
+}
+
+async function uploadAllCurrencyRatesToSupabase(ratesObj) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const rows = Object.keys(ratesObj).map(currency => ({
+      user_id: currentUser.id,
+      currency: currency,
+      rate: ratesObj[currency]
+    }));
+    if (rows.length === 0) return;
+    const { error } = await supa
+      .from('currency_rates')
+      .upsert(rows, { onConflict: 'user_id,currency' });
+    if (error) throw error;
+  });
+}
+
+// Koordinerer currency rates ved login. Samme mønster som initProfileMemory.
+async function initCurrencyRates() {
+  // 1) Supabase
+  const sbRates = await loadCurrencyRatesFromSupabase();
+  if (Object.keys(sbRates).length > 0) {
+    _currencyRatesCache = sbRates;
+    return 'supabase';
+  }
+  // 2) Auto-lift fra localStorage
+  let localRates = {};
+  try {
+    const raw = localStorage.getItem(CURRENCY_KEY);
+    if (raw) localRates = JSON.parse(raw) || {};
+  } catch(e) { console.warn('Kunne ikke læse currency rates fra localStorage:', e); }
+
+  if (Object.keys(localRates).length > 0) {
+    _currencyRatesCache = localRates;
+    try {
+      await uploadAllCurrencyRatesToSupabase(localRates);
+      return 'lifted';
+    } catch (e) {
+      console.warn('Auto-lift af currency rates fejlede:', e);
+      return 'local-fallback';
+    }
+  }
+  // 3) Tom — fresh start
+  _currencyRatesCache = {};
+  return 'empty';
+}
+
+// ===== Kategori-hukommelse =====
+// Gemmer Shopify-kategorier pr. EAN/Item Number, så de kan auto-udfyldes næste gang.
+const CATEGORY_KEY = 'bc_category_memory_v1';
+
+// In-memory cache (v2.5) — fyldes ved login, så loadCategoryMemory() forbliver synkron.
+let _categoryMemoryCache = {};
+
+function loadCategoryMemory() {
+  // Returnerer cache — synkron API bevares for resten af koden.
+  return _categoryMemoryCache;
+}
+
+function saveCategoryMemory(newMem) {
+  // Beregn diff mod nuværende cache for at minimere cloud-kald
+  const oldKeys = new Set(Object.keys(_categoryMemoryCache));
+  const newKeys = new Set(Object.keys(newMem));
+  const toUpsert = [];
+  for (const k of newKeys) {
+    const oldVal = _categoryMemoryCache[k];
+    const newVal = newMem[k];
+    if (!oldVal || JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+      toUpsert.push(k);
+    }
+  }
+  const toDelete = [];
+  for (const k of oldKeys) {
+    if (!newKeys.has(k)) toDelete.push(k);
+  }
+
+  // 1) Synkron opdatering: cache + localStorage backup
+  _categoryMemoryCache = newMem;
+  try {
+    localStorage.setItem(CATEGORY_KEY, JSON.stringify(newMem));
+  } catch(e) { console.warn('Kunne ikke gemme kategori-hukommelse lokalt:', e); }
+
+  // 2) Async cloud-sync — fire-and-forget med fejl-logging
+  if (toUpsert.length > 0 || toDelete.length > 0) {
+    syncCategoryToCloud(toUpsert, toDelete, newMem).catch(e => {
+      console.warn('Cloud-sync af kategori-hukommelse fejlede (lokal backup OK):', e);
+    });
+  }
+}
+
+// Henter de gemte kategorier for en given EAN/identifier
+function getCategoriesFor(identifier) {
+  if (!identifier) return null;
+  const mem = loadCategoryMemory();
+  return mem[identifier] || null;
+}
+
+function updateCategoryStatus() {
+  const el = document.getElementById('categoryStatus');
+  if (!el) return;
+  const mem = loadCategoryMemory();
+  const count = Object.keys(mem).length;
+  el.textContent = count === 0 ? 'Ingen varer gemt endnu' : count + ' varer i hukommelse';
+}
+
+// === Supabase category_memory (v2.5) ===
+const CATEGORY_CHUNK_SIZE = 500; // Supabase batch-grænse for upsert/in-filter
+
+async function loadCategoryMemoryFromSupabase() {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('category_memory')
+      .select('ean, cat1, cat2, cat3, cat4, cat5, cat6')
+      .eq('user_id', currentUser.id);
+    if (error) throw error;
+    const result = {};
+    for (const row of (data || [])) {
+      result[row.ean] = [
+        row.cat1 || '', row.cat2 || '', row.cat3 || '',
+        row.cat4 || '', row.cat5 || '', row.cat6 || ''
+      ];
+    }
+    return result;
+  });
+}
+
+async function upsertCategoryBatch(eans, mem) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    for (let i = 0; i < eans.length; i += CATEGORY_CHUNK_SIZE) {
+      const chunk = eans.slice(i, i + CATEGORY_CHUNK_SIZE);
+      const rows = chunk.map(ean => {
+        const cats = mem[ean] || [];
+        return {
+          user_id: currentUser.id,
+          ean: ean,
+          cat1: cats[0] || null,
+          cat2: cats[1] || null,
+          cat3: cats[2] || null,
+          cat4: cats[3] || null,
+          cat5: cats[4] || null,
+          cat6: cats[5] || null
+        };
+      });
+      const { error } = await supa
+        .from('category_memory')
+        .upsert(rows, { onConflict: 'user_id,ean' });
+      if (error) throw error;
+    }
+  });
+}
+
+async function deleteCategoryBatch(eans) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    for (let i = 0; i < eans.length; i += CATEGORY_CHUNK_SIZE) {
+      const chunk = eans.slice(i, i + CATEGORY_CHUNK_SIZE);
+      const { error } = await supa
+        .from('category_memory')
+        .delete()
+        .eq('user_id', currentUser.id)
+        .in('ean', chunk);
+      if (error) throw error;
+    }
+  });
+}
+
+// Synkroniserer ændringer til cloud. Upserts kører før deletes, så hvis browseren
+// lukkes midt i, har vi de nye data + de gamle i cloud — ikke kun de gamle.
+async function syncCategoryToCloud(toUpsert, toDelete, mem) {
+  if (!currentUser) return;
+  if (toUpsert.length > 0) await upsertCategoryBatch(toUpsert, mem);
+  if (toDelete.length > 0) await deleteCategoryBatch(toDelete);
+}
+
+async function uploadAllCategoryMemoryToSupabase(mem) {
+  await upsertCategoryBatch(Object.keys(mem), mem);
+}
+
+async function deleteAllCategoryMemoryFromSupabase() {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { error } = await supa
+      .from('category_memory')
+      .delete()
+      .eq('user_id', currentUser.id);
+    if (error) throw error;
+  });
+}
+
+// Koordinerer category memory ved login. Samme mønster som de øvrige init-funktioner.
+async function initCategoryMemory() {
+  // 1) Supabase
+  const sbMem = await loadCategoryMemoryFromSupabase();
+  if (Object.keys(sbMem).length > 0) {
+    _categoryMemoryCache = sbMem;
+    return 'supabase';
+  }
+  // 2) Auto-lift fra localStorage
+  let localMem = {};
+  try {
+    const raw = localStorage.getItem(CATEGORY_KEY);
+    if (raw) localMem = JSON.parse(raw) || {};
+  } catch(e) { console.warn('Kunne ikke læse kategori-hukommelse fra localStorage:', e); }
+
+  if (Object.keys(localMem).length > 0) {
+    _categoryMemoryCache = localMem;
+    try {
+      await uploadAllCategoryMemoryToSupabase(localMem);
+      return 'lifted';
+    } catch (e) {
+      console.warn('Auto-lift af kategori-hukommelse fejlede:', e);
+      return 'local-fallback';
+    }
+  }
+  // 3) Tom — fresh start
+  _categoryMemoryCache = {};
+  return 'empty';
+}
+
+function showCategoryMessage(success, html) {
+  const errBox = document.getElementById('categoryError');
+  const okBox = document.getElementById('categorySuccess');
+  if (success) {
+    errBox.style.display = 'none';
+    okBox.style.display = 'block';
+    okBox.innerHTML = html;
+  } else {
+    okBox.style.display = 'none';
+    errBox.style.display = 'block';
+    errBox.textContent = html;
+  }
+}
+
+// Læser kategorier fra en udfyldt BC-fil og gemmer dem pr. EAN/Item Number
+function handleCategoryUpload(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      // Try common sheet names; otherwise first sheet
+      let sheetName = wb.SheetNames[0];
+      for (const candidate of ['Product', 'Shopify Category', 'Shopify Categories']) {
+        if (wb.SheetNames.includes(candidate)) { sheetName = candidate; break; }
+      }
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+
+      if (rows.length < 2) throw new Error('Filen er tom eller har ingen data-rækker.');
+
+      // Auto-detect column positions from header row.
+      // Supports both:
+      //  - 21-column BC output (D=Product Item No, E=GTIN, O-T=Shopify Category 1-6)
+      //  - 11-column BC export (A=No., B=Description, F-K=Shopify Category 1-6)
+      const headerRow = rows[0] || [];
+      const headers = headerRow.map(h => safeStr(h).toLowerCase().trim());
+
+      function findHeaderIdx(...candidates) {
+        for (const c of candidates) {
+          const idx = headers.indexOf(c.toLowerCase());
+          if (idx !== -1) return idx;
+        }
+        return -1;
+      }
+
+      const idxGTIN = findHeaderIdx('gtin');
+      const idxProdNo = findHeaderIdx('product item no.', 'product item no', 'item number', 'no.', 'no');
+      const idxCat1 = findHeaderIdx('shopify category 1');
+
+      if (idxCat1 === -1) {
+        throw new Error('Kunne ikke finde "Shopify Category 1"-kolonnen i filen. Er det den rigtige fil?');
+      }
+      if (idxGTIN === -1 && idxProdNo === -1) {
+        throw new Error('Kunne ikke finde GTIN, Product Item No., eller No.-kolonnen i filen.');
+      }
+
+      // 6 consecutive category columns from idxCat1
+      const idxCatLast = idxCat1 + 5;
+
+      const mem = loadCategoryMemory();
+      let saved = 0;
+      let updated = 0;
+      let skipped = 0;
+
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r.length === 0) continue;
+
+        const gtin = idxGTIN >= 0 ? normalizeEAN(r[idxGTIN]) : '';
+        const prodNo = idxProdNo >= 0 ? normalizeEAN(r[idxProdNo]) : '';
+        const key = gtin || prodNo;
+        if (!key) { skipped++; continue; }
+
+        const cats = [];
+        for (let c = idxCat1; c <= idxCatLast; c++) {
+          cats.push(safeStr(r[c]));
+        }
+        if (cats.every(c => !c)) { skipped++; continue; }
+
+        if (mem[key]) updated++; else saved++;
+        mem[key] = cats;
+      }
+
+      saveCategoryMemory(mem);
+      updateCategoryStatus();
+      showCategoryMessage(true,
+        '<strong>Kategorier gemt!</strong><br>' +
+        'Nye varer: ' + saved + '<br>' +
+        'Opdaterede varer: ' + updated + '<br>' +
+        'Sprunget over (uden ID eller uden kategorier): ' + skipped);
+    } catch(err) {
+      showCategoryMessage(false, 'Fejl ved læsning: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// Eksporterer hele hukommelsen som xlsx-backup
+async function exportCategoryBackup() {
+  const mem = loadCategoryMemory();
+  const keys = Object.keys(mem);
+  if (keys.length === 0) {
+    showCategoryMessage(false, 'Ingen kategorier at eksportere — hukommelsen er tom.');
+    return;
+  }
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Kategorier');
+  ws.addRow(['EAN/Identifier', 'Kategori 1', 'Kategori 2', 'Kategori 3', 'Kategori 4', 'Kategori 5', 'Kategori 6']);
+  ws.getRow(1).font = { bold: true };
+  ws.getColumn(1).width = 20;
+  for (let i = 2; i <= 7; i++) ws.getColumn(i).width = 22;
+
+  keys.forEach(key => {
+    const cats = mem[key] || [];
+    ws.addRow([key, cats[0]||'', cats[1]||'', cats[2]||'', cats[3]||'', cats[4]||'', cats[5]||'']);
+  });
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const today = new Date().toISOString().slice(0, 10);
+  a.download = 'BC_Kategorier_Backup_' + today + '.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  showCategoryMessage(true, '<strong>Backup downloadet</strong><br>' + keys.length + ' varer eksporteret.');
+}
+
+// Importerer en backup-fil og overskriver hukommelsen
+function handleCategoryRestore(file) {
+  if (!file) return;
+  if (!confirm('Importer backup? Eksisterende hukommelse overskrives med indholdet i filen.')) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+
+      if (rows.length < 2) throw new Error('Filen er tom.');
+
+      const newMem = {};
+      let count = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[0]) continue;
+        const key = normalizeEAN(r[0]);
+        if (!key) continue;
+        const cats = [];
+        for (let c = 1; c <= 6; c++) cats.push(safeStr(r[c]));
+        if (cats.every(c => !c)) continue;
+        newMem[key] = cats;
+        count++;
+      }
+
+      saveCategoryMemory(newMem);
+      updateCategoryStatus();
+      showCategoryMessage(true, '<strong>Backup importeret!</strong><br>' + count + ' varer indlæst.');
+    } catch(err) {
+      showCategoryMessage(false, 'Fejl ved import: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function clearCategoryMemory() {
+  const mem = loadCategoryMemory();
+  const count = Object.keys(mem).length;
+  if (count === 0) {
+    showCategoryMessage(false, 'Hukommelsen er allerede tom.');
+    return;
+  }
+  if (!confirm('Vil du virkelig rydde kategori-hukommelsen for ' + count + ' varer? Denne handling kan ikke fortrydes (medmindre du har en backup).')) return;
+  // Synkron: cache + localStorage
+  _categoryMemoryCache = {};
+  localStorage.removeItem(CATEGORY_KEY);
+  updateCategoryStatus();
+  showCategoryMessage(true, '<strong>Hukommelse ryddet</strong><br>' + count + ' varer fjernet.');
+  // Async: cloud (fire-and-forget)
+  deleteAllCategoryMemoryFromSupabase().catch(e => {
+    console.warn('Cloud-sletning af kategori-hukommelse fejlede:', e);
+  });
+}
+
+// === LEGACY localStorage-funktioner (v2.2+) ===
+// Disse var hovedlaget i v1.x. I v2.2+ er Supabase autoritativ for master data,
+// og localStorage er kun BACKUP. Funktionerne bevares fordi de bruges af:
+//   - initMasterData(): auto-lift fra localStorage til Supabase ved første login efter migration
+//   - master upload-handler: parallel skrivning til localStorage som lokal backup
+//   - resetMasterData(): localStorage.removeItem ved nulstilling
+// Funktionerne må IKKE bruges direkte til at læse "aktuel state" — det skal altid
+// gå gennem cache (VENDORS, PROFILES osv. globale arrays) der fyldes ved login.
+function loadMasterFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (data.vendors && data.vendors.length) VENDORS = data.vendors;
+    if (data.itemCats && data.itemCats.length) ITEM_CATS = data.itemCats;
+    if (data.shopifyCats && data.shopifyCats.length) SHOPIFY_CATS = data.shopifyCats;
+    if (data.ppc && data.ppc.length) PPC_OPTIONS = data.ppc;
+    if (data.brands && data.brands.length) BRANDS = data.brands;
+    if (data.profiles && data.profiles.length) PROFILES = data.profiles;
+    window._masterUpdated = data.updated || null;
+    return true;
+  } catch(e) {
+    console.warn('Kunne ikke indlæse master data fra localStorage:', e);
+    return false;
+  }
+}
+
+// Backup-skrivning til localStorage. Kaldes parallelt med saveMasterToSupabase()
+// i master upload-handleren, så data overlever selv om cloud fejler.
+function saveMasterToStorage() {
+  try {
+    const data = {
+      vendors: VENDORS,
+      itemCats: ITEM_CATS,
+      shopifyCats: SHOPIFY_CATS,
+      ppc: PPC_OPTIONS,
+      brands: BRANDS,
+      profiles: PROFILES,
+      updated: new Date().toISOString()
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    window._masterUpdated = data.updated;
+  } catch(e) {
+    console.warn('Kunne ikke gemme master data til localStorage:', e);
+  }
+}
+
+// === Supabase master data (v2.2) ===
+// Bygger et fladt master-objekt fra de globale arrays — bruges af både
+// saveMasterToSupabase() og auto-lift.
+function buildMasterPayload() {
+  return {
+    vendors: VENDORS,
+    itemCats: ITEM_CATS,
+    shopifyCats: SHOPIFY_CATS,
+    ppc: PPC_OPTIONS,
+    brands: BRANDS,
+    profiles: PROFILES,
+    updated: new Date().toISOString()
+  };
+}
+
+// Anvender et master-payload på de globale arrays.
+function applyMasterPayload(data) {
+  if (!data) return false;
+  if (data.vendors && data.vendors.length) VENDORS = data.vendors;
+  if (data.itemCats && data.itemCats.length) ITEM_CATS = data.itemCats;
+  if (data.shopifyCats && data.shopifyCats.length) SHOPIFY_CATS = data.shopifyCats;
+  if (data.ppc && data.ppc.length) PPC_OPTIONS = data.ppc;
+  if (data.brands && data.brands.length) BRANDS = data.brands;
+  if (data.profiles && data.profiles.length) PROFILES = data.profiles;
+  window._masterUpdated = data.updated || null;
+  return true;
+}
+
+// Henter master data fra Supabase for den loggede-ind bruger.
+// Returnerer payload-objekt, eller null hvis ingen række findes.
+async function loadMasterFromSupabase() {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('master_data')
+      .select('data, updated_at')
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const payload = data.data || {};
+    // Brug DB's updated_at hvis JSONB ikke selv har 'updated'-felt
+    if (!payload.updated && data.updated_at) payload.updated = data.updated_at;
+    return payload;
+  });
+}
+
+// Gemmer master data i Supabase. Bruger upsert så samme bruger kan opdatere.
+async function saveMasterToSupabase() {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const payload = buildMasterPayload();
+    const { error } = await supa
+      .from('master_data')
+      .upsert({ user_id: currentUser.id, data: payload }, { onConflict: 'user_id' });
+    if (error) throw error;
+    window._masterUpdated = payload.updated;
+    return payload;
+  });
+}
+
+// Sletter master data-rækken fra Supabase (bruges af "Nulstil").
+async function deleteMasterFromSupabase() {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { error } = await supa
+      .from('master_data')
+      .delete()
+      .eq('user_id', currentUser.id);
+    if (error) throw error;
+  });
+}
+
+// Koordinerer master data ved login. Returnerer status-streng til UI.
+//   1) Forsøg load fra Supabase
+//   2) Hvis tom: forsøg auto-lift fra localStorage
+//   3) Hvis stadig tom: behold DEFAULTS (allerede i globalerne)
+async function initMasterData() {
+  // 1) Supabase
+  const sbData = await loadMasterFromSupabase();
+  if (sbData) {
+    applyMasterPayload(sbData);
+    return 'supabase';
+  }
+  // 2) Auto-lift fra localStorage
+  if (loadMasterFromStorage()) {
+    // localStorage havde data — globalerne er nu fyldt. Skub op til Supabase.
+    try {
+      await saveMasterToSupabase();
+      return 'lifted';
+    } catch (e) {
+      console.warn('Auto-lift til Supabase fejlede:', e);
+      return 'local-fallback';
+    }
+  }
+  // 3) Ingen data nogen steder — DEFAULTS er allerede aktive
+  return 'defaults';
+}
+
+function updateMasterStatus() {
+  const el = document.getElementById('masterDataStatus');
+  const resetBtn = document.getElementById('resetMasterBtn');
+  const footer = document.getElementById('versionFooter');
+  const baseVersion = 'Version 2.6 — cloud-status indikator + force re-sync';
+  if (window._masterUpdated) {
+    const d = new Date(window._masterUpdated);
+    const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
+    el.textContent = 'Opdateret ' + dateStr;
+    resetBtn.style.display = 'inline-block';
+    if (footer) footer.textContent = baseVersion + '  ·  Masterdata: ' + dateStr;
+  } else {
+    el.textContent = 'Bruger default data';
+    resetBtn.style.display = 'none';
+    if (footer) footer.textContent = baseVersion + '  ·  Masterdata: bruger default';
+  }
+}
+
+function refreshDropdowns() {
+  // Refresh vendor dropdown
+  vendorSel.innerHTML = '<option value="">Vælg leverandør...</option>';
+  VENDORS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; vendorSel.appendChild(o); });
+
+  // Refresh item category dropdown
+  itemSel.innerHTML = '<option value="">Vælg kategori...</option>';
+  ITEM_CATS.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; itemSel.appendChild(o); });
+
+  // Refresh brand dropdown
+  const brandSel = document.getElementById('brandCode');
+  const currentBrand = brandSel.value;
+  brandSel.innerHTML = '<option value="">Vælg brand...</option>';
+  BRANDS.forEach(b => { const o = document.createElement('option'); o.value = b; o.textContent = b; brandSel.appendChild(o); });
+  if (BRANDS.includes(currentBrand)) brandSel.value = currentBrand;
+
+  // Refresh PPC dropdown
+  const ppcSel = document.getElementById('ppcSelect');
+  const currentPpc = ppcSel.value || 'No Relationship';
+  ppcSel.innerHTML = '';
+  PPC_OPTIONS.forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; ppcSel.appendChild(o); });
+  ppcSel.value = PPC_OPTIONS.includes(currentPpc) ? currentPpc : PPC_OPTIONS[0];
+
+  // Refresh profile dropdown
+  const profSel = document.getElementById('profileSelect');
+  const currentProf = profSel.value;
+  profSel.innerHTML = '<option value="">Vælg profil...</option>';
+  PROFILES.forEach(p => { const o = document.createElement('option'); o.value = p.name; o.textContent = p.name; profSel.appendChild(o); });
+  if (PROFILES.find(p => p.name === currentProf)) profSel.value = currentProf;
+}
+
+// === Supabase auth (v2.1) ===
+// Klienten oprettes her; data-laget bruger stadig localStorage indtil Trin 4b.
+const SUPABASE_URL = 'https://yremnypzhsmvbiukopdl.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_4-V-yuF4VLTEaGP8f5loKQ_RQe6uH_e';
+const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+});
+let currentUser = null;
+let _appInitialised = false;
+
+function showLogin() {
+  document.getElementById('loginOverlay').style.display = 'flex';
+  document.getElementById('appContainer').style.display = 'none';
+  document.getElementById('loadingOverlay').style.display = 'none';
+}
+function showLoading(msg) {
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.getElementById('appContainer').style.display = 'none';
+  const ov = document.getElementById('loadingOverlay');
+  ov.style.display = 'flex';
+  document.getElementById('loadingMsg').textContent = msg || 'Indlæser...';
+  document.getElementById('loadingError').style.display = 'none';
+  document.getElementById('loadingRetryBtn').style.display = 'none';
+}
+function showLoadingError(msg) {
+  const errEl = document.getElementById('loadingError');
+  errEl.textContent = msg;
+  errEl.style.display = 'block';
+  document.getElementById('loadingRetryBtn').style.display = 'inline-block';
+  document.getElementById('loadingMsg').textContent = 'Kunne ikke indlæse data';
+}
+async function showApp() {
+  // Hvis allerede initialiseret, vis blot containeren (sker fx ved page-fokus)
+  if (_appInitialised) {
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('loadingOverlay').style.display = 'none';
+    document.getElementById('appContainer').style.display = 'block';
+    document.getElementById('userEmail').textContent = currentUser ? currentUser.email : '';
+    return;
+  }
+  showLoading('Indlæser dine data...');
+  try {
+    // Parallelle init-kald — alle fire data-lag er uafhængige
+    const [masterStatus, profileStatus, currencyStatus, categoryStatus] = await Promise.all([
+      initMasterData(),
+      initProfileMemory(),
+      initCurrencyRates(),
+      initCategoryMemory()
+    ]);
+    console.log('Master:', masterStatus, '· Profile:', profileStatus, '· Currency:', currencyStatus, '· Category:', categoryStatus);
+    // Synkronisér UI med (potentielt) nyindlæste globaler
+    refreshDropdowns();
+    updateMasterStatus();
+    updateCategoryStatus();
+    _appInitialised = true;
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('loadingOverlay').style.display = 'none';
+    document.getElementById('appContainer').style.display = 'block';
+    document.getElementById('userEmail').textContent = currentUser ? currentUser.email : '';
+  } catch (e) {
+    console.error('Data load fejlede:', e);
+    showLoadingError('Fejl: ' + (e && e.message ? e.message : String(e)));
+  }
+}
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  const btn = document.getElementById('loginBtn');
+  errEl.style.display = 'none';
+  if (!email || !password) {
+    errEl.textContent = 'Indtast email og adgangskode.';
+    errEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Logger ind...';
+  try {
+    const { error } = await supa.auth.signInWithPassword({ email, password });
+    if (error) {
+      errEl.textContent = 'Login fejlede: ' + error.message;
+      errEl.style.display = 'block';
+    }
+    // Ved success: onAuthStateChange viser appen
+  } catch (e) {
+    errEl.textContent = 'Login fejlede: ' + (e && e.message ? e.message : String(e));
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Log ind';
+  }
+}
+async function doLogout() {
+  await supa.auth.signOut();
+  // onAuthStateChange viser login-skærmen
+}
+
+// Nulstil globaler til DEFAULTS når brugeren logger ud — så næste login starter rent.
+function resetGlobalsToDefaults() {
+  VENDORS = [...DEFAULT_VENDORS];
+  ITEM_CATS = [...DEFAULT_ITEM_CATS];
+  SHOPIFY_CATS = [...DEFAULT_SHOPIFY_CATS];
+  PPC_OPTIONS = [...DEFAULT_PPC];
+  BRANDS = [...DEFAULT_BRANDS];
+  PROFILES = DEFAULT_PROFILES.map(p => ({...p}));
+  window._masterUpdated = null;
+  _profileMemoryCache = {};
+  _currencyRatesCache = {};
+  _categoryMemoryCache = {};
+  _appInitialised = false;
+}
+
+document.getElementById('loginBtn').addEventListener('click', doLogin);
+document.getElementById('logoutBtn').addEventListener('click', doLogout);
+document.getElementById('loginEmail').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('loginPassword').focus();
+});
+document.getElementById('loginPassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// Force re-sync (v2.6): genuploader alle lokale caches til Supabase.
+// Sikkerhedsnet hvis noget kommer ud af sync — sjældent nødvendigt.
+async function doForceResync() {
+  if (!currentUser) return;
+  const masterRows = window._masterUpdated ? 'OK' : 'tom';
+  const profileCount = Object.keys(_profileMemoryCache).length;
+  const currencyCount = Object.keys(_currencyRatesCache).length;
+  const categoryCount = Object.keys(_categoryMemoryCache).length;
+  const msg = 'Force re-sync genuploader ALLE lokale data til cloud.\n\n' +
+    'Master data: ' + masterRows + '\n' +
+    'Profile memory: ' + profileCount + ' profiler\n' +
+    'Currency rates: ' + currencyCount + ' valutaer\n' +
+    'Kategori-hukommelse: ' + categoryCount + ' varer\n\n' +
+    'Det kan tage flere sekunder ved stor kategori-hukommelse. Fortsæt?';
+  if (!confirm(msg)) return;
+
+  const btn = document.getElementById('forceResyncBtn');
+  btn.disabled = true;
+  const origLabel = btn.textContent;
+  btn.textContent = 'Synkroniserer…';
+  try {
+    // Master data
+    if (Object.keys(buildMasterPayload()).length > 0) {
+      await saveMasterToSupabase();
+    }
+    // Profile memory
+    if (profileCount > 0) {
+      await uploadAllProfileMemoryToSupabase(_profileMemoryCache);
+    }
+    // Currency rates
+    if (currencyCount > 0) {
+      await uploadAllCurrencyRatesToSupabase(_currencyRatesCache);
+    }
+    // Category memory (kan være stort — bruger batched upsert)
+    if (categoryCount > 0) {
+      await uploadAllCategoryMemoryToSupabase(_categoryMemoryCache);
+    }
+    alert('Force re-sync færdig.\n\nMaster data, profile memory, valutaer og ' +
+      categoryCount + ' kategorier er nu uploaded til cloud.');
+  } catch (e) {
+    console.error('Force re-sync fejlede:', e);
+    alert('Force re-sync fejlede: ' + (e && e.message ? e.message : String(e)) +
+      '\n\nLokale data er stadig intakte. Prøv igen, eller se F12 → Console for detaljer.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origLabel;
+  }
+}
+document.getElementById('forceResyncBtn').addEventListener('click', doForceResync);
+
+// Kopier Intersign-logoet fra app-header til login-kortet
+(function copyLoginLogo() {
+  const headerImg = document.querySelector('#appContainer img[alt="Intersign logo"]');
+  const loginImg = document.getElementById('loginLogoImg');
+  if (headerImg && loginImg) loginImg.src = headerImg.src;
+})();
+
+// Auth-state lytter: håndterer login, logout og session-refresh
+supa.auth.onAuthStateChange((event, session) => {
+  if (session && session.user) {
+    // Hvis bruger-ID skifter (ny bruger logger ind), reset globaler først
+    if (currentUser && currentUser.id !== session.user.id) {
+      resetGlobalsToDefaults();
+    }
+    currentUser = session.user;
+    showApp();
+  } else {
+    currentUser = null;
+    resetGlobalsToDefaults();
+    showLogin();
+  }
+});
+
+// Retry-knap i loading-fejl-tilstand
+document.getElementById('loadingRetryBtn').addEventListener('click', () => {
+  showApp();
+});
+
+// Initial session-check ved sideload
+(async function initAuth() {
+  try {
+    const { data } = await supa.auth.getSession();
+    if (data && data.session && data.session.user) {
+      currentUser = data.session.user;
+      showApp();
+    } else {
+      showLogin();
+    }
+  } catch (e) {
+    console.error('Auth init fejlede:', e);
+    showLogin();
+  }
+})();
+
+let currentStep = 0;
+let parsedRows = [];
+let eolFiltered = 0;
+let nopriceFiltered = 0;
+let newCount = 0;
+let outputWB = null;
+
+function safeStr(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).trim();
+}
+
+function normalizeEAN(v) {
+  // Remove whitespace, non-breaking spaces, and leading apostrophes (Excel text-prefix)
+  return safeStr(v).replace(/\u00a0/g,'').replace(/\s/g,'').replace(/^'+/,'');
+}
+
+// Parse CSV text into a 2D array. Auto-detects delimiter (, ; or tab).
+// Handles quoted fields with embedded commas and escaped quotes.
+function parseCSV(text) {
+  // Strip BOM if present
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  // Detect delimiter from first line (prefer comma, then semicolon, then tab)
+  const firstLine = text.split(/\r?\n/, 1)[0] || '';
+  let delim = ',';
+  if (firstLine.indexOf(',') === -1) {
+    if (firstLine.indexOf(';') !== -1) delim = ';';
+    else if (firstLine.indexOf('\t') !== -1) delim = '\t';
+  }
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i+1] === '"') { field += '"'; i++; }
+        else { inQuotes = false; }
+      } else { field += c; }
+    } else {
+      if (c === '"') { inQuotes = true; }
+      else if (c === delim) { row.push(field); field = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i+1] === '\n') i++;
+        row.push(field); field = '';
+        // Skip completely empty lines
+        if (row.length > 1 || row[0] !== '') rows.push(row);
+        row = [];
+      } else { field += c; }
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    if (row.length > 1 || row[0] !== '') rows.push(row);
+  }
+  return rows;
+}
+
+const vendorSel = document.getElementById('vendorSelect');
+const itemSel = document.getElementById('itemCatSelect');
+
+refreshDropdowns();
+updateMasterStatus();
+updateCategoryStatus();
+
+function goStep(n) {
+  document.getElementById('step' + currentStep).classList.remove('active');
+  currentStep = n;
+  document.getElementById('step' + currentStep).classList.add('active');
+  for (let i = 0; i < 4; i++) {
+    const d = document.getElementById('dot' + i);
+    d.className = 'step-dot' + (i < n ? ' done' : i === n ? ' active' : '');
+  }
+  // Auto-fill step 1 from profile defaults
+  if (n === 1 && window._profile) {
+    const p = window._profile;
+    if (p.defaultVendor && VENDORS.includes(p.defaultVendor)) vendorSel.value = p.defaultVendor;
+    if (p.defaultBrand && BRANDS.includes(p.defaultBrand)) document.getElementById('brandCode').value = p.defaultBrand;
+    if (p.defaultItemCat && ITEM_CATS.includes(p.defaultItemCat)) itemSel.value = p.defaultItemCat;
+    const ppcSel = document.getElementById('ppcSelect');
+    if (p.defaultPPC && PPC_OPTIONS.includes(p.defaultPPC)) ppcSel.value = p.defaultPPC;
+
+    // Currency handling: all currencies editable, default values seeded if not previously saved.
+    const currency = (p.currency || 'EUR').toUpperCase();
+    const rateInput = document.getElementById('exchangeRate');
+    const rateLabel = document.getElementById('exchangeRateLabel');
+    const rateHint = document.getElementById('exchangeRateHint');
+    rateLabel.textContent = 'Valutakurs (' + currency + ' → DKK)';
+    const lastRate = getCurrencyRate(currency);
+    rateInput.value = lastRate !== '' ? String(lastRate) : '';
+    rateInput.readOnly = false;
+    rateInput.style.background = '';
+    if (lastRate !== '') {
+      rateHint.textContent = 'Sidst brugte ' + currency + '-kurs vises — ret hvis nødvendigt.';
+    } else {
+      rateHint.textContent = 'Indtast aktuel kurs for ' + currency + '.';
+    }
+    rateHint.style.display = 'block';
+
+    // Auto-fill profit/discount from memory (per profile)
+    const mem = loadProfitMemory();
+    const saved = mem[p.name] || {};
+    document.getElementById('profitPct').value = saved.profit !== undefined ? saved.profit : '';
+    document.getElementById('discountT1').value = saved.discountT1 !== undefined ? saved.discountT1 : '';
+    document.getElementById('discountT2').value = saved.discountT2 !== undefined ? saved.discountT2 : '';
+
+    // Set leverandørrabat: use saved value if any, otherwise profile default
+    const vendorDiscountInput = document.getElementById('vendorDiscount');
+    const vendorDiscountHint = document.getElementById('vendorDiscountHint');
+    let vdValue;
+    if (saved.vendorDiscount !== undefined) {
+      vdValue = saved.vendorDiscount;
+      vendorDiscountHint.textContent = 'Sidst brugte rabat for denne profil er ' + vdValue + ' % — ret hvis nødvendigt.';
+    } else if (p.defaultDiscount && p.defaultDiscount > 0) {
+      vdValue = p.defaultDiscount;
+      vendorDiscountHint.textContent = 'Profilens default-rabat er ' + p.defaultDiscount + ' % — ret hvis nødvendigt.';
+    } else {
+      vdValue = 0;
+      vendorDiscountHint.textContent = 'Hvis prislistens pris er vejl. udsalg (MSRP/UVP), kan rabatten trækkes automatisk.';
+    }
+    vendorDiscountInput.value = vdValue;
+
+    // Auto-fill shipping mode + value from memory
+    shippingModeSel.value = saved.shippingMode || 'none';
+    updateShippingUI();
+    shippingValueInput.value = saved.shippingValue !== undefined && saved.shippingValue !== '' ? saved.shippingValue : '';
+  }
+}
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); handleFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+
+// ===== Profile selection =====
+const profileSel = document.getElementById('profileSelect');
+profileSel.addEventListener('change', () => {
+  const profileInfo = document.getElementById('profileInfo');
+  const whitelistSection = document.getElementById('whitelistSection');
+  const name = profileSel.value;
+  if (!name) {
+    profileInfo.style.display = 'none';
+    whitelistSection.style.display = 'none';
+    return;
+  }
+  const p = PROFILES.find(pr => pr.name === name);
+  if (!p) { profileInfo.style.display = 'none'; whitelistSection.style.display = 'none'; return; }
+  profileInfo.style.display = 'block';
+  const profCurrency = (p.currency || 'EUR').toUpperCase();
+  const effectiveRate = getCurrencyRate(profCurrency);
+  const rateToShow = effectiveRate !== '' ? effectiveRate : (p.currencyRate || 1);
+  const discountLine = (p.defaultDiscount && p.defaultDiscount > 0)
+    ? '<br>Leverandørrabat: ' + p.defaultDiscount + ' %'
+    : '';
+  profileInfo.innerHTML =
+    '<strong>Profil: ' + p.name + '</strong><br>' +
+    'Faner: ' + p.sheets.join(', ') + '<br>' +
+    'Valutakurs (' + profCurrency + ' → DKK): × ' + rateToShow +
+    discountLine;
+
+  // Show whitelist section and set default from profile
+  whitelistSection.style.display = 'block';
+  const toggle = document.getElementById('useWhitelistToggle');
+  toggle.checked = !!p.useWhitelist;
+  document.getElementById('whitelistMatchInfo').textContent = 'Match-kolonne: ' + (p.whitelistMatchColumn || 'ean code');
+  updateWhitelistUI();
+});
+
+function updateWhitelistUI() {
+  const on = document.getElementById('useWhitelistToggle').checked;
+  document.getElementById('whitelistUploadRow').style.display = on ? 'block' : 'none';
+  if (!on) {
+    // reset whitelist state if toggled off
+    window._whitelistSet = null;
+    document.getElementById('whitelistFileInfo').textContent = '';
+    document.getElementById('whitelistError').style.display = 'none';
+    document.getElementById('whitelistInput').value = '';
+  }
+}
+
+document.getElementById('useWhitelistToggle').addEventListener('change', updateWhitelistUI);
+
+// ===== Shipping Cost mode =====
+const shippingModeSel = document.getElementById('shippingMode');
+const shippingValueInput = document.getElementById('shippingValue');
+const shippingHint = document.getElementById('shippingHint');
+
+function updateShippingUI() {
+  const mode = shippingModeSel.value;
+  if (mode === 'none') {
+    shippingValueInput.disabled = true;
+    shippingValueInput.placeholder = '';
+    shippingValueInput.value = '';
+    shippingHint.textContent = 'Ingen fragtomkostning tilføjes — kolonne I bliver tom.';
+  } else if (mode === 'fixed') {
+    shippingValueInput.disabled = false;
+    shippingValueInput.placeholder = 'f.eks. 50';
+    shippingHint.textContent = 'Samme fragtpris (DKK) sættes på alle varer.';
+  } else if (mode === 'percent') {
+    shippingValueInput.disabled = false;
+    shippingValueInput.placeholder = 'f.eks. 4.5';
+    shippingHint.textContent = 'Fragten beregnes som procent af Cost Price, afrundet til hele kroner.';
+  }
+}
+shippingModeSel.addEventListener('change', updateShippingUI);
+updateShippingUI();
+
+document.getElementById('whitelistInput').addEventListener('change', e => handleWhitelistFile(e.target.files[0]));
+
+function handleWhitelistFile(file) {
+  if (!file) return;
+  const errBox = document.getElementById('whitelistError');
+  const info = document.getElementById('whitelistFileInfo');
+  errBox.style.display = 'none';
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      let values = [];
+      const isCSV = file.name.toLowerCase().endsWith('.csv');
+      if (isCSV) {
+        const text = new TextDecoder('utf-8').decode(new Uint8Array(e.target.result));
+        const lines = text.split(/\r?\n/);
+        for (const line of lines) {
+          const first = line.split(/[,;\t]/)[0];
+          const v = safeStr(first).replace(/^["']|["']$/g, '');
+          if (v) values.push(v);
+        }
+      } else {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+        for (const r of rows) {
+          if (r && r[0] !== null && r[0] !== undefined && r[0] !== '') {
+            values.push(String(r[0]).trim());
+          }
+        }
+      }
+
+      // Skip first value if it looks like a header
+      if (values.length && /^(ean|gtin|upc|identifier|model|code|item)/i.test(values[0])) {
+        values = values.slice(1);
+      }
+
+      // Normalize: strip non-breaking spaces and whitespace
+      const normalized = new Set(values.map(v => v.replace(/\u00a0/g, '').replace(/\s/g, '').replace(/^'+/, '')));
+      normalized.delete('');
+
+      if (normalized.size === 0) {
+        throw new Error('Ingen identifikatorer fundet i positiv-listen');
+      }
+
+      window._whitelistSet = normalized;
+      window._whitelistFileName = file.name;
+      info.textContent = file.name + ' (' + normalized.size + ' identifikatorer)';
+    } catch(err) {
+      errBox.style.display = 'block';
+      errBox.textContent = 'Fejl ved læsning af positiv-liste: ' + err.message;
+      window._whitelistSet = null;
+      info.textContent = '';
+    }
+  };
+  if (file.name.toLowerCase().endsWith('.csv')) {
+    reader.readAsArrayBuffer(file);
+  } else {
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+function getSelectedProfile() {
+  const name = profileSel.value;
+  if (!name) return null;
+  return PROFILES.find(p => p.name === name) || null;
+}
+
+// ===== Master data upload =====
+const masterInput = document.getElementById('masterInput');
+masterInput.addEventListener('change', e => handleMasterFile(e.target.files[0]));
+
+// Category memory upload listeners
+document.getElementById('categoryInput').addEventListener('change', e => {
+  handleCategoryUpload(e.target.files[0]);
+  e.target.value = ''; // allow re-upload of same file
+});
+document.getElementById('categoryRestoreInput').addEventListener('change', e => {
+  handleCategoryRestore(e.target.files[0]);
+  e.target.value = '';
+});
+
+function handleMasterFile(file) {
+  if (!file) return;
+  document.getElementById('masterError').style.display = 'none';
+  document.getElementById('masterSuccess').style.display = 'none';
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+
+      const required = ['Vendor', 'ItemCategory', 'ShopifyCategories', 'PriceProfitCalculation', 'BrandCode'];
+      const missing = required.filter(s => !wb.SheetNames.includes(s));
+      if (missing.length) {
+        throw new Error('Filen mangler fanerne: ' + missing.join(', '));
+      }
+      // VendorProfiles is optional — only parsed if present
+      const hasProfiles = wb.SheetNames.includes('VendorProfiles');
+
+      // Parse Vendor (use column C - index 2)
+      const vendorRows = XLSX.utils.sheet_to_json(wb.Sheets['Vendor'], { header: 1, defval: null });
+      const newVendors = [];
+      for (let i = 1; i < vendorRows.length; i++) {
+        const r = vendorRows[i];
+        if (r && r[2]) newVendors.push(String(r[2]).trim());
+      }
+
+      // Parse ItemCategory (column A)
+      const itemRows = XLSX.utils.sheet_to_json(wb.Sheets['ItemCategory'], { header: 1, defval: null });
+      const newItems = [];
+      for (let i = 1; i < itemRows.length; i++) {
+        const r = itemRows[i];
+        if (r && r[0]) newItems.push(String(r[0]).trim());
+      }
+
+      // Parse ShopifyCategories (column A)
+      const shopRows = XLSX.utils.sheet_to_json(wb.Sheets['ShopifyCategories'], { header: 1, defval: null });
+      const newShops = [];
+      for (let i = 1; i < shopRows.length; i++) {
+        const r = shopRows[i];
+        if (r && r[0]) newShops.push(String(r[0]).trim());
+      }
+
+      // Parse BrandCode (column A, skip header)
+      const brandRows = XLSX.utils.sheet_to_json(wb.Sheets['BrandCode'], { header: 1, defval: null });
+      const newBrands = [];
+      for (let i = 1; i < brandRows.length; i++) {
+        const r = brandRows[i];
+        if (r && r[0]) newBrands.push(String(r[0]).trim());
+      }
+
+      // Parse PriceProfitCalculation (column A — may or may not have header)
+      const ppcRows = XLSX.utils.sheet_to_json(wb.Sheets['PriceProfitCalculation'], { header: 1, defval: null });
+      const newPpc = [];
+      const knownPpcValues = ['Price=Profit-Cost', 'Price=Cost+Profit', 'No Relationship'];
+      for (let i = 0; i < ppcRows.length; i++) {
+        const r = ppcRows[i];
+        if (r && r[0]) {
+          const v = String(r[0]).trim();
+          // Skip header-looking values (not equal to any known PPC value AND looks like a header)
+          if (i === 0 && !knownPpcValues.includes(v) &&
+              (v.toLowerCase() === 'calculation' || v.toLowerCase() === 'code' || v.toLowerCase() === 'description' || v.toLowerCase() === 'value')) continue;
+          newPpc.push(v);
+        }
+      }
+
+      if (!newVendors.length || !newItems.length || !newShops.length || !newPpc.length || !newBrands.length) {
+        throw new Error('En eller flere faner er tomme. Tjek at alle 5 faner har data.');
+      }
+
+      // Parse VendorProfiles (optional sheet)
+      let newProfiles = [...DEFAULT_PROFILES.map(p => ({...p}))];
+      if (hasProfiles) {
+        const profRows = XLSX.utils.sheet_to_json(wb.Sheets['VendorProfiles'], { header: 1, defval: null });
+        if (profRows.length >= 2) {
+          const header = (profRows[0] || []).map(h => safeStr(h).toLowerCase().replace(/\s+/g,' '));
+          function colIdx(name) { return header.indexOf(name.toLowerCase()); }
+          const iName = colIdx('profile name');
+          const iSheets = colIdx('sheets');
+          const iHeaderSearch = colIdx('header search');
+          const iDesc = colIdx('col description');
+          const iDescFallback = colIdx('col description fallback');
+          const iProdNo = colIdx('col product item no');
+          const iGTIN = colIdx('col gtin');
+          const iModel = colIdx('col vendor model');
+          const iPrice = colIdx('col cost price');
+          const iShip = colIdx('col shipping cost');
+          const iStatus = colIdx('col status');
+          const iEol = colIdx('eol markers');
+          const iNew = colIdx('new markers');
+          const iRate = colIdx('currency rate');
+          const iCurrency = colIdx('currency');
+          const iDefDiscount = colIdx('default discount %');
+          const iDefBrand = colIdx('default brand');
+          const iDefVendor = colIdx('default vendor');
+          const iDefItemCat = colIdx('default item cat');
+          const iDefPpc = colIdx('default ppc');
+          const iUseWhitelist = colIdx('use whitelist');
+          const iWhitelistCol = colIdx('whitelist match column');
+
+          if (iName < 0) throw new Error('VendorProfiles-fanen mangler kolonnen "Profile Name"');
+
+          newProfiles = [];
+          for (let i = 1; i < profRows.length; i++) {
+            const r = profRows[i];
+            if (!r || !r[iName]) continue;
+            function splitList(v) {
+              return safeStr(v).split(',').map(s => s.trim()).filter(s => s.length);
+            }
+            newProfiles.push({
+              name: safeStr(r[iName]),
+              sheets: iSheets >= 0 ? splitList(r[iSheets]) : [],
+              headerSearch: iHeaderSearch >= 0 ? safeStr(r[iHeaderSearch]) : 'ean',
+              colDescription: iDesc >= 0 ? safeStr(r[iDesc]) : '',
+              colDescriptionFallback: iDescFallback >= 0 ? safeStr(r[iDescFallback]) : '',
+              colProductItemNo: iProdNo >= 0 ? safeStr(r[iProdNo]) : '',
+              colGTIN: iGTIN >= 0 ? safeStr(r[iGTIN]) : '',
+              colVendorModel: iModel >= 0 ? safeStr(r[iModel]) : '',
+              colCostPrice: iPrice >= 0 ? safeStr(r[iPrice]) : '',
+              colShippingCost: iShip >= 0 ? safeStr(r[iShip]) : '',
+              colStatus: iStatus >= 0 ? safeStr(r[iStatus]) : '',
+              eolMarkers: iEol >= 0 ? splitList(r[iEol]) : [],
+              newMarkers: iNew >= 0 ? splitList(r[iNew]) : [],
+              currencyRate: iRate >= 0 && r[iRate] !== null && r[iRate] !== '' ? parseFloat(r[iRate]) : 1,
+              currency: iCurrency >= 0 && safeStr(r[iCurrency]) ? safeStr(r[iCurrency]).toUpperCase() : 'EUR',
+              defaultDiscount: iDefDiscount >= 0 && r[iDefDiscount] !== null && r[iDefDiscount] !== '' ? parseFloat(r[iDefDiscount]) : 0,
+              defaultBrand: iDefBrand >= 0 ? safeStr(r[iDefBrand]) : '',
+              defaultVendor: iDefVendor >= 0 ? safeStr(r[iDefVendor]) : '',
+              defaultItemCat: iDefItemCat >= 0 ? safeStr(r[iDefItemCat]) : '',
+              defaultPPC: iDefPpc >= 0 ? safeStr(r[iDefPpc]) : '',
+              useWhitelist: iUseWhitelist >= 0 ? safeStr(r[iUseWhitelist]).toLowerCase() === 'yes' : false,
+              whitelistMatchColumn: iWhitelistCol >= 0 ? safeStr(r[iWhitelistCol]) : 'ean code'
+            });
+          }
+        }
+      }
+
+      VENDORS = newVendors;
+      ITEM_CATS = newItems;
+      SHOPIFY_CATS = newShops;
+      PPC_OPTIONS = newPpc;
+      BRANDS = newBrands;
+      PROFILES = newProfiles;
+
+      // Gem først til Supabase (primær), derefter til localStorage (backup)
+      let cloudOk = false;
+      let cloudErr = null;
+      try {
+        await saveMasterToSupabase();
+        cloudOk = true;
+      } catch (cloudE) {
+        cloudErr = cloudE;
+        console.error('Supabase-gemning fejlede:', cloudE);
+      }
+      saveMasterToStorage();
+      refreshDropdowns();
+      updateMasterStatus();
+
+      const msg = document.getElementById('masterSuccess');
+      msg.style.display = 'block';
+      msg.innerHTML = '<strong>Master data opdateret!</strong><br>' +
+        VENDORS.length + ' leverandører, ' +
+        BRANDS.length + ' brands, ' +
+        ITEM_CATS.length + ' item kategorier, ' +
+        SHOPIFY_CATS.length + ' Shopify kategorier, ' +
+        PPC_OPTIONS.length + ' beregningsmetoder, ' +
+        PROFILES.length + ' profiler.' +
+        (cloudOk ? '' : '<br><span style="color:#c00;">⚠ Advarsel: Kunne ikke gemme i cloud (' +
+          (cloudErr && cloudErr.message ? cloudErr.message : 'ukendt fejl') +
+          '). Data er kun gemt lokalt indtil næste opdatering.</span>');
+
+      masterInput.value = '';
+    } catch(err) {
+      document.getElementById('masterError').style.display = 'block';
+      document.getElementById('masterError').textContent = 'Fejl: ' + err.message;
+      masterInput.value = '';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function resetMasterData() {
+  if (!confirm('Er du sikker på at du vil nulstille master data til default?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  let cloudErr = null;
+  try {
+    await deleteMasterFromSupabase();
+  } catch (e) {
+    cloudErr = e;
+    console.error('Kunne ikke slette master data i Supabase:', e);
+  }
+  VENDORS = [...DEFAULT_VENDORS];
+  ITEM_CATS = [...DEFAULT_ITEM_CATS];
+  SHOPIFY_CATS = [...DEFAULT_SHOPIFY_CATS];
+  PPC_OPTIONS = [...DEFAULT_PPC];
+  BRANDS = [...DEFAULT_BRANDS];
+  PROFILES = DEFAULT_PROFILES.map(p => ({...p}));
+  window._masterUpdated = null;
+  refreshDropdowns();
+  updateMasterStatus();
+  document.getElementById('masterSuccess').style.display = 'none';
+  if (cloudErr) {
+    const errEl = document.getElementById('masterError');
+    errEl.style.display = 'block';
+    errEl.textContent = 'Advarsel: Nulstilling lokalt OK, men cloud-sletning fejlede: ' +
+      (cloudErr.message || 'ukendt fejl');
+  } else {
+    document.getElementById('masterError').style.display = 'none';
+  }
+}
+
+function handleFile(file) {
+  if (!file) return;
+  document.getElementById('fileError').style.display = 'none';
+
+  const profile = getSelectedProfile();
+  if (!profile) {
+    document.getElementById('fileError').style.display = 'block';
+    document.getElementById('fileError').textContent = 'Vælg først en leverandør-profil.';
+    fileInput.value = '';
+    return;
+  }
+
+  const useWhitelist = document.getElementById('useWhitelistToggle').checked;
+  if (useWhitelist && !window._whitelistSet) {
+    document.getElementById('fileError').style.display = 'block';
+    document.getElementById('fileError').textContent = 'Positiv-liste er aktiveret men ingen fil er uploadet. Upload positiv-listen først eller slå den fra.';
+    fileInput.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const isCSV = file.name.toLowerCase().endsWith('.csv');
+
+      let wb;
+      if (isCSV) {
+        // Decode as text and parse via SheetJS CSV reader.
+        // This auto-handles delimiters (,/;/tab), quoted fields, and BOM.
+        const text = new TextDecoder('utf-8').decode(data);
+        wb = XLSX.read(text, { type: 'string' });
+        // SheetJS gives the CSV sheet a default name like 'Sheet1'.
+        // Rename it so profiles can reference 'csv' explicitly.
+        const origName = wb.SheetNames[0];
+        if (origName !== 'csv') {
+          wb.Sheets['csv'] = wb.Sheets[origName];
+          wb.SheetNames[0] = 'csv';
+          delete wb.Sheets[origName];
+        }
+      } else {
+        wb = XLSX.read(data, { type: 'array' });
+      }
+
+      // Check that all required sheets exist
+      const missing = profile.sheets.filter(s => !wb.SheetNames.includes(s));
+      if (missing.length) {
+        document.getElementById('fileError').style.display = 'block';
+        document.getElementById('fileError').textContent =
+          'Profilen forventer disse faner, men de mangler i filen: ' + missing.join(', ') +
+          '. Filens faner er: ' + wb.SheetNames.join(', ');
+        return;
+      }
+
+      // Gather all rows from all profile sheets. Each sheet has its own header row.
+      // We store rows per-sheet so we can resolve columns per-sheet at process time.
+      // Header detection: find the row that best matches the profile's expected columns.
+      // We score each candidate row by how many profile column-references it contains.
+      const expectedCols = [
+        profile.colDescription,
+        profile.colProductItemNo,
+        profile.colGTIN,
+        profile.colVendorModel,
+        profile.colCostPrice,
+        profile.colShippingCost,
+        profile.colStatus,
+        profile.whitelistMatchColumn
+      ].map(c => (c || '').toLowerCase().trim()).filter(c => c.length > 0);
+
+      const sheetsData = profile.sheets.map(name => {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null });
+        const searchTerm = profile.headerSearch.toLowerCase();
+        let bestRow = -1;
+        let bestScore = 0;
+        for (let i = 0; i < Math.min(rows.length, 20); i++) {
+          const r = rows[i];
+          if (!r) continue;
+          // Lower-cased, trimmed cell values for this row
+          const cells = r.map(c => safeStr(c).toLowerCase().trim());
+          // Must contain the headerSearch term somewhere
+          const hasSearch = cells.some(c => c.indexOf(searchTerm) !== -1);
+          if (!hasSearch) continue;
+          // Score: how many expected column-references appear as (part of) any cell in this row.
+          // Uniqueness is what matters — a header row will have several distinct column names.
+          let score = 0;
+          for (const col of expectedCols) {
+            if (cells.some(c => c === col || c.indexOf(col) !== -1)) score++;
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            bestRow = i;
+          }
+        }
+        return { name, rows, headerRow: bestRow };
+      });
+
+      const missingHeaders = sheetsData.filter(s => s.headerRow === -1).map(s => s.name);
+      if (missingHeaders.length) {
+        document.getElementById('fileError').style.display = 'block';
+        document.getElementById('fileError').textContent =
+          'Kunne ikke finde header-række med søgeordet "' + profile.headerSearch + '" i: ' + missingHeaders.join(', ');
+        return;
+      }
+
+      window._sheetsData = sheetsData;
+      window._profile = profile;
+      window._fileName = file.name.replace('.xlsx','');
+      document.getElementById('fileInfo').style.display = 'block';
+      document.getElementById('fileInfo').textContent =
+        file.name + ' (' + (file.size/1024).toFixed(0) + ' KB) — ' +
+        sheetsData.length + ' faner: ' + sheetsData.map(s => s.name).join(', ');
+      goStep(1);
+    } catch(err) {
+      document.getElementById('fileError').style.display = 'block';
+      document.getElementById('fileError').textContent = 'Fejl ved læsning af fil: ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function validateStep1() {
+  if (!vendorSel.value) { alert('Vælg venligst en leverandør'); return; }
+  if (!document.getElementById('brandCode').value) { alert('Vælg venligst et brand'); return; }
+  if (!itemSel.value) { alert('Vælg venligst en Item Category Code'); return; }
+  const rate = parseFloat(document.getElementById('exchangeRate').value.replace(',','.'));
+  if (isNaN(rate) || rate <= 0) { alert('Angiv en gyldig valutakurs'); return; }
+
+  // Validate leverandørrabat (0-100)
+  const discRaw = document.getElementById('vendorDiscount').value.trim().replace(',','.');
+  const vendorDiscount = discRaw === '' ? 0 : parseFloat(discRaw);
+  if (isNaN(vendorDiscount) || vendorDiscount < 0 || vendorDiscount >= 100) {
+    alert('Leverandørrabat skal være et tal mellem 0 og 99.99');
+    return;
+  }
+
+  // Save current rate for this currency (global, across profiles)
+  if (window._profile) {
+    const cur = (window._profile.currency || 'EUR').toUpperCase();
+    saveCurrencyRate(cur, rate);
+  }
+
+  // Profit % is required
+  const profitRaw = document.getElementById('profitPct').value.trim().replace(',','.');
+  if (!profitRaw) { alert('Profit % skal udfyldes'); return; }
+  const profit = parseFloat(profitRaw);
+  if (isNaN(profit)) { alert('Profit % skal være et tal'); return; }
+
+  // Discount tiers are optional
+  const d1Raw = document.getElementById('discountT1').value.trim().replace(',','.');
+  const d2Raw = document.getElementById('discountT2').value.trim().replace(',','.');
+  let d1 = '', d2 = '';
+  if (d1Raw) {
+    d1 = parseFloat(d1Raw);
+    if (isNaN(d1)) { alert('Discount % Tier 1 skal være et tal'); return; }
+  }
+  if (d2Raw) {
+    d2 = parseFloat(d2Raw);
+    if (isNaN(d2)) { alert('Discount % Tier 2 skal være et tal'); return; }
+  }
+
+  // Shipping cost validation
+  const shippingMode = shippingModeSel.value;
+  let shippingValue = '';
+  if (shippingMode !== 'none') {
+    const svRaw = shippingValueInput.value.trim().replace(',','.');
+    if (!svRaw) {
+      alert('Angiv en værdi for Shipping Cost eller vælg "Ingen"');
+      return;
+    }
+    const sv = parseFloat(svRaw);
+    if (isNaN(sv) || sv < 0) {
+      alert('Shipping Cost skal være et positivt tal');
+      return;
+    }
+    shippingValue = sv;
+  }
+
+  // Save to memory (per profile)
+  if (window._profile) {
+    saveProfitMemory(window._profile.name, {
+      profit: profit,
+      discountT1: d1 === '' ? '' : d1,
+      discountT2: d2 === '' ? '' : d2,
+      shippingMode: shippingMode,
+      shippingValue: shippingValue === '' ? '' : shippingValue,
+      vendorDiscount: vendorDiscount
+    });
+  }
+
+  goStep(2);
+  setTimeout(processFile, 150);
+}
+
+function processFile() {
+  processFileAsync().catch(err => {
+    const progTxt = document.getElementById('progressText');
+    progTxt.textContent = 'Fejl: ' + err.message;
+    progTxt.style.color = '#c00';
+    console.error(err);
+  });
+}
+
+async function processFileAsync() {
+  const prog = document.getElementById('progressFill');
+  const progTxt = document.getElementById('progressText');
+  prog.style.width = '20%';
+  progTxt.textContent = 'Analyserer kolonner...';
+  progTxt.style.color = '';
+
+  try {
+    const sheetsData = window._sheetsData;
+    const profile = window._profile;
+    const vendor = vendorSel.value;
+    const brand = document.getElementById('brandCode').value;
+    const itemCat = itemSel.value;
+    const ppc = document.getElementById('ppcSelect').value;
+    const rate = parseFloat(document.getElementById('exchangeRate').value.replace(',','.'));
+
+    const vendorDiscountRaw = document.getElementById('vendorDiscount').value.trim().replace(',','.');
+    const vendorDiscount = vendorDiscountRaw === '' ? 0 : parseFloat(vendorDiscountRaw);
+    const discountFactor = 1 - vendorDiscount / 100;
+
+    const profitVal = parseFloat(document.getElementById('profitPct').value.trim().replace(',','.'));
+    const d1Raw = document.getElementById('discountT1').value.trim().replace(',','.');
+    const d2Raw = document.getElementById('discountT2').value.trim().replace(',','.');
+    const discountT1Val = d1Raw ? parseFloat(d1Raw) : '';
+    const discountT2Val = d2Raw ? parseFloat(d2Raw) : '';
+
+    const userShippingMode = shippingModeSel.value;
+    const userShippingValRaw = shippingValueInput.value.trim().replace(',','.');
+    const userShippingVal = (userShippingMode !== 'none' && userShippingValRaw) ? parseFloat(userShippingValRaw) : null;
+
+    // Helper: find column index in a header row, matching on profile mapping string
+    function findColByHeader(headers, needle) {
+      if (!needle) return -1;
+      const n = needle.toLowerCase().trim();
+      for (let i = 0; i < headers.length; i++) {
+        if (headers[i] && headers[i].indexOf(n) !== -1) return i;
+      }
+      return -1;
+    }
+
+    prog.style.width = '30%';
+    progTxt.textContent = 'Behandler varer...';
+
+    parsedRows = [];
+    eolFiltered = 0;
+    nopriceFiltered = 0;
+    newCount = 0;
+    let whitelistFiltered = 0;
+    let categoryAutoFilledCount = 0;
+    const sheetStats = [];
+
+    const eolMarkers = (profile.eolMarkers || []).map(m => m.toUpperCase());
+    const newMarkers = (profile.newMarkers || []).map(m => m.toUpperCase());
+
+    const useWhitelist = document.getElementById('useWhitelistToggle').checked && window._whitelistSet;
+    const whitelistSet = useWhitelist ? window._whitelistSet : null;
+    const whitelistMatchCol = profile.whitelistMatchColumn || 'ean code';
+    const matchedWhitelist = useWhitelist ? new Set() : null;
+
+    for (const sheet of sheetsData) {
+      const rows = sheet.rows;
+      const headerRow = sheet.headerRow;
+      const headerArr = rows[headerRow] || [];
+      const headers = [];
+      for (let i = 0; i < headerArr.length; i++) {
+        headers.push(safeStr(headerArr[i]).toLowerCase().replace(/\s+/g,' '));
+      }
+
+      const idxDesc    = findColByHeader(headers, profile.colDescription);
+      const idxDescFallback = profile.colDescriptionFallback ? findColByHeader(headers, profile.colDescriptionFallback) : -1;
+      const idxProdNo  = findColByHeader(headers, profile.colProductItemNo);
+      const idxGTIN    = findColByHeader(headers, profile.colGTIN);
+      const idxModel   = findColByHeader(headers, profile.colVendorModel);
+      const idxPrice   = findColByHeader(headers, profile.colCostPrice);
+      const idxShip    = findColByHeader(headers, profile.colShippingCost);
+      const idxStatus  = findColByHeader(headers, profile.colStatus);
+      const idxWhitelistMatch = useWhitelist ? findColByHeader(headers, whitelistMatchCol) : -1;
+
+      if (idxDesc < 0 || idxModel < 0 || idxPrice < 0) {
+        throw new Error('Fane "' + sheet.name + '" mangler kolonner. Description:' + idxDesc + ' Model:' + idxModel + ' Pris:' + idxPrice);
+      }
+      if (useWhitelist && idxWhitelistMatch < 0) {
+        throw new Error('Fane "' + sheet.name + '" mangler whitelist match-kolonnen "' + whitelistMatchCol + '".');
+      }
+
+      let sheetRowCount = 0;
+
+      for (let i = headerRow + 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r.length === 0) continue;
+
+        const statusRaw = idxStatus >= 0 ? safeStr(r[idxStatus]) : '';
+        const statusUp = statusRaw.toUpperCase();
+        const priceRaw = r[idxPrice];
+        const gtinRaw = idxGTIN >= 0 ? normalizeEAN(r[idxGTIN]) : '';
+        const prodNoRaw = idxProdNo >= 0 ? normalizeEAN(r[idxProdNo]) : '';
+        const model = safeStr(r[idxModel]);
+        let desc = safeStr(r[idxDesc]);
+        if (!desc && idxDescFallback >= 0) {
+          desc = safeStr(r[idxDescFallback]);
+        }
+        const shipRaw = idxShip >= 0 ? r[idxShip] : null;
+
+        if (!model) continue;
+
+        // Whitelist check (før EOL/pris, så whitelist-filterering er det første der sker)
+        if (useWhitelist) {
+          const matchRaw = normalizeEAN(r[idxWhitelistMatch]);
+          if (!matchRaw || !whitelistSet.has(matchRaw)) {
+            whitelistFiltered++;
+            continue;
+          }
+          matchedWhitelist.add(matchRaw);
+        }
+
+        // EOL check
+        let isEol = false;
+        for (const m of eolMarkers) {
+          if (statusUp === m || statusUp.indexOf(m) === 0) { isEol = true; break; }
+        }
+        if (isEol) { eolFiltered++; continue; }
+
+        const priceNum = priceRaw !== null && priceRaw !== undefined && priceRaw !== '' ? parseFloat(priceRaw) : NaN;
+        if (isNaN(priceNum)) { nopriceFiltered++; continue; }
+
+        const price = Math.round(priceNum * rate * discountFactor * 100) / 100;
+
+        // Shipping Cost: user's choice takes precedence.
+        // Otherwise fall back to pricelist's shipping column (if profile maps one).
+        let shipping = '';
+        if (userShippingMode === 'fixed' && userShippingVal !== null) {
+          shipping = userShippingVal;
+        } else if (userShippingMode === 'percent' && userShippingVal !== null) {
+          shipping = Math.round(price * userShippingVal / 100);
+        } else if (userShippingMode === 'none') {
+          if (shipRaw !== null && shipRaw !== undefined && shipRaw !== '') {
+            const shipNum = parseFloat(shipRaw);
+            if (!isNaN(shipNum)) shipping = Math.round(shipNum * rate * 100) / 100;
+          }
+        }
+
+        // NEW check
+        let isNew = false;
+        for (const m of newMarkers) {
+          if (statusUp === m || statusUp.indexOf(m) === 0) { isNew = true; break; }
+        }
+        if (isNew) newCount++;
+
+        // Product Item No: use GTIN if present, otherwise model
+        const productItemNo = prodNoRaw || gtinRaw || model;
+        const gtin = gtinRaw;
+        const colA = desc + brand + productItemNo + vendor + model;
+
+        // Look up Shopify categories from memory (by GTIN, fallback to productItemNo)
+        const memCats = getCategoriesFor(gtin) || getCategoriesFor(productItemNo);
+        const oVal = memCats ? (memCats[0] || '') : '';
+        const pVal = memCats ? (memCats[1] || '') : '';
+        const qVal = memCats ? (memCats[2] || '') : '';
+        const rVal = memCats ? (memCats[3] || '') : '';
+        const sVal = memCats ? (memCats[4] || '') : '';
+        const tVal = memCats ? (memCats[5] || '') : '';
+        if (memCats) categoryAutoFilledCount++;
+
+        parsedRows.push({
+          A: colA, B: desc, C: brand, D: productItemNo, E: gtin,
+          F: vendor, G: model, H: price, I: shipping,
+          J: itemCat, K: ppc,
+          L: profitVal, M: discountT1Val, N: discountT2Val,
+          O: oVal, P: pVal, Q: qVal, R: rVal, S: sVal, T: tVal,
+          U: isNew ? 'NEW' : ''
+        });
+        sheetRowCount++;
+      }
+      sheetStats.push({ name: sheet.name, count: sheetRowCount });
+    }
+
+    window._sheetStats = sheetStats;
+
+    // Whitelist stats
+    if (useWhitelist) {
+      const notFound = [];
+      whitelistSet.forEach(id => { if (!matchedWhitelist.has(id)) notFound.push(id); });
+      window._whitelistStats = {
+        total: whitelistSet.size,
+        matched: matchedWhitelist.size,
+        filtered: whitelistFiltered,
+        notFound: notFound
+      };
+    } else {
+      window._whitelistStats = null;
+    }
+
+    prog.style.width = '80%';
+    progTxt.textContent = 'Bygger Excel-fil...';
+
+    // Use ExcelJS to build output with data validation
+    const workbook = new ExcelJS.Workbook();
+    const productSheet = workbook.addWorksheet('Product');
+    const bc_headers = ['No.','Description','Brand Code','Product Item No.','GTIN','Vendor No.','Vendor Model','Cost Price','Shipping Cost','Item Category Code','Price/Profit Calculation','Profit %','Discount % Tier 1','Discount % Tier 2','Shopify Category 1','Shopify Category 2','Shopify Category 3','Shopify Category 4','Shopify Category 5','Shopify Category 6','Notes'];
+    productSheet.addRow(bc_headers);
+
+    parsedRows.forEach(row => {
+      productSheet.addRow([
+        row.A, row.B, row.C, row.D, row.E, row.F, row.G, row.H, row.I,
+        row.J, row.K, row.L, row.M, row.N,
+        row.O || '', row.P || '', row.Q || '', row.R || '', row.S || '', row.T || '',
+        row.U
+      ]);
+    });
+
+    // Set column widths
+    const widths = [20,40,12,18,16,30,16,12,12,18,20,10,14,14,18,18,18,18,18,18,8];
+    widths.forEach((w, i) => { productSheet.getColumn(i + 1).width = w; });
+
+    // Make header row bold
+    productSheet.getRow(1).font = { bold: true };
+
+    // Build ShopifyCategories reference sheet
+    const catSheet = workbook.addWorksheet('ShopifyCategories');
+    catSheet.addRow(['Description']);
+    SHOPIFY_CATS.forEach(c => catSheet.addRow([c]));
+    catSheet.getColumn(1).width = 40;
+    catSheet.getRow(1).font = { bold: true };
+
+    // Add data validation on columns O-T (15-20) for all product rows
+    const lastRow = parsedRows.length + 1;
+    const catRef = 'ShopifyCategories!$A$2:$A$' + (SHOPIFY_CATS.length + 1);
+    for (let col = 15; col <= 20; col++) {
+      for (let r = 2; r <= lastRow; r++) {
+        const cell = productSheet.getCell(r, col);
+        cell.dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [catRef],
+          showErrorMessage: true,
+          errorTitle: 'Ugyldig kategori',
+          error: 'Vælg en kategori fra listen'
+        };
+      }
+    }
+
+    prog.style.width = '100%';
+    progTxt.textContent = 'Klar!';
+
+    // Generate buffer for download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    if (window._currentBlobUrl) URL.revokeObjectURL(window._currentBlobUrl);
+    window._currentBlobUrl = URL.createObjectURL(blob);
+
+    document.getElementById('totalCount').textContent = parsedRows.length;
+    document.getElementById('newCount').textContent = newCount;
+    document.getElementById('eolCount').textContent = eolFiltered;
+    document.getElementById('nopriceCount').textContent = nopriceFiltered;
+    let sheetStatsHtml = '';
+    if (window._sheetStats) {
+      sheetStatsHtml = '<br><b>Faner:</b><br>' +
+        window._sheetStats.map(s => '&nbsp;&nbsp;' + s.name + ': ' + s.count + ' varer').join('<br>');
+    }
+    let whitelistHtml = '';
+    if (window._whitelistStats) {
+      const ws = window._whitelistStats;
+      whitelistHtml = '<br><b>Positiv-liste:</b> ' + ws.matched + '/' + ws.total + ' matchet';
+      if (ws.filtered > 0) whitelistHtml += ', ' + ws.filtered + ' varer filtreret fra';
+      if (ws.notFound.length > 0) {
+        whitelistHtml += '<br><span style="color:#c00;">&nbsp;&nbsp;' + ws.notFound.length +
+          ' identifikator(er) i positiv-listen blev ikke fundet i prislisten</span>';
+      }
+    }
+    let shippingSummary = '—';
+    if (userShippingMode === 'fixed' && userShippingVal !== null) {
+      shippingSummary = userShippingVal + ' DKK (fast) på alle varer';
+    } else if (userShippingMode === 'percent' && userShippingVal !== null) {
+      shippingSummary = userShippingVal + ' % af Cost Price';
+    }
+    const totalRows = parsedRows.length;
+    const missingCats = totalRows - categoryAutoFilledCount;
+    const categoryHtml =
+      '<br><b>Shopify-kategorier:</b> ' + categoryAutoFilledCount + ' auto-udfyldt' +
+      (missingCats > 0 ? ', ' + missingCats + ' mangler' : ' (alle varer dækket)');
+
+    document.getElementById('settingsSummary').innerHTML =
+      '<b>Profil:</b> ' + (window._profile ? window._profile.name : '—') + '<br>' +
+      '<b>F Vendor:</b> ' + vendor + '<br>' +
+      '<b>C Brand:</b> ' + brand + '<br>' +
+      '<b>J Category:</b> ' + itemCat + '<br>' +
+      '<b>K Calc:</b> ' + ppc + '<br>' +
+      '<b>L Profit %:</b> ' + profitVal + '<br>' +
+      '<b>M Discount T1:</b> ' + (discountT1Val === '' ? '—' : discountT1Val) + '<br>' +
+      '<b>N Discount T2:</b> ' + (discountT2Val === '' ? '—' : discountT2Val) + '<br>' +
+      '<b>I Shipping:</b> ' + shippingSummary + '<br>' +
+      '<b>Valutakurs:</b> × ' + rate + '<br>' +
+      '<b>Leverandørrabat:</b> ' + (vendorDiscount > 0 ? vendorDiscount + ' %' : '—') +
+      categoryHtml +
+      whitelistHtml +
+      sheetStatsHtml;
+
+    document.getElementById('downloadBtn').onclick = () => {
+      const a = document.createElement('a');
+      a.href = window._currentBlobUrl;
+      a.download = (window._fileName || 'prisliste') + '_BC.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+
+    setTimeout(() => goStep(3), 300);
+
+  } catch(err) {
+    progTxt.textContent = 'Fejl: ' + err.message;
+    progTxt.style.color = '#c00';
+    console.error(err);
+  }
+}
+
+function resetAll() {
+  parsedRows = []; outputWB = null;
+  document.getElementById('fileInfo').style.display = 'none';
+  document.getElementById('fileInfo').textContent = '';
+  document.getElementById('fileError').style.display = 'none';
+  document.getElementById('profileInfo').style.display = 'none';
+  document.getElementById('profileSelect').value = '';
+  document.getElementById('whitelistSection').style.display = 'none';
+  document.getElementById('useWhitelistToggle').checked = false;
+  document.getElementById('whitelistUploadRow').style.display = 'none';
+  document.getElementById('whitelistFileInfo').textContent = '';
+  document.getElementById('whitelistError').style.display = 'none';
+  document.getElementById('whitelistInput').value = '';
+  window._sheetsData = null;
+  window._profile = null;
+  window._sheetStats = null;
+  window._whitelistSet = null;
+  window._whitelistFileName = null;
+  window._whitelistStats = null;
+  fileInput.value = '';
+  document.getElementById('brandCode').value = '';
+  vendorSel.value = '';
+  itemSel.value = '';
+  document.getElementById('ppcSelect').value = 'No Relationship';
+  document.getElementById('exchangeRate').value = '7.5';
+  document.getElementById('vendorDiscount').value = '0';
+  document.getElementById('profitPct').value = '';
+  document.getElementById('discountT1').value = '';
+  document.getElementById('discountT2').value = '';
+  shippingModeSel.value = 'none';
+  updateShippingUI();
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progressText').style.color = '';
+  goStep(0);
+}
+</script>
+</body>
+</html>
