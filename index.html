@@ -189,6 +189,14 @@ footer {
   text-align: center; color: #888; font-size: 13px;
   padding: 2rem 1rem;
 }
+/* Bekræft-knap (v2.8.1) — grøn confirmed state */
+#confirmConversionBtn.confirmed {
+  background: #28a745; color: white; border-color: #28a745;
+  cursor: default;
+}
+#confirmConversionBtn.confirmed:hover {
+  background: #28a745; color: white;
+}
 /* Loading overlay (v2.2) */
 #loadingOverlay {
   position: fixed; inset: 0; background: #f7f7f5;
@@ -440,11 +448,20 @@ footer {
     </div>
     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
       <button class="btn-primary" id="downloadBtn">Download BC-fil</button>
+      <button class="btn-secondary" id="generateReportBtn" type="button">Generér opdateringsrapport</button>
       <button class="btn-secondary" onclick="resetAll()">Konverter ny prisliste</button>
+    </div>
+    <div id="confirmSection" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #eee;">
+      <p style="font-size: 13px; color: #666; margin: 0 0 8px;">
+        Når du har bekræftet at BC-filen er som den skal være, klik herunder for at registrere
+        konverteringen. Dette opdaterer prisindeks, snapshot og historik.
+      </p>
+      <button class="btn-secondary" id="confirmConversionBtn" type="button">Bekræft og opdater</button>
+      <span id="confirmStatus" style="margin-left: 12px; font-size: 13px; color: #28a745; display: none;"></span>
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.7 — konverteringshistorik</footer>
+  <footer id="versionFooter">Version 2.8.1 — bekræft-knap for snapshot/indeks</footer>
 </div>
 
 <script>
@@ -1431,6 +1448,75 @@ async function loadConversionHistory() {
   });
 }
 
+// === Supabase price_snapshots (v2.8) ===
+// Én snapshot pr. profil, delt globalt. Bruges som "før"-billede ved
+// generering af opdateringsrapport.
+async function loadPriceSnapshot(profileName) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('price_snapshots')
+      .select('snapshot_data, snapshot_at, currency_rate, last_user_email')
+      .eq('profile_name', profileName)
+      .maybeSingle();
+    if (error) throw error;
+    return data || null;
+  });
+}
+
+async function savePriceSnapshot(profileName, snapshotData, currencyRate) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { error } = await supa
+      .from('price_snapshots')
+      .upsert({
+        profile_name: profileName,
+        snapshot_data: snapshotData,
+        snapshot_at: new Date().toISOString(),
+        currency_rate: currencyRate,
+        last_user_id: currentUser.id,
+        last_user_email: currentUser.email
+      }, { onConflict: 'profile_name' });
+    if (error) throw error;
+  });
+}
+
+// === Supabase price_index_log (v2.8) ===
+// Tidsserie af indeks-værdier — én række pr. konvertering hvor sammenligning var mulig.
+async function recordPriceIndex(entry) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { error } = await supa
+      .from('price_index_log')
+      .insert({
+        profile_name:    entry.profile_name,
+        index_pct_orig:  entry.index_pct_orig,
+        index_pct_dkk:   entry.index_pct_dkk,
+        currency:        entry.currency,
+        n_matched:       entry.n_matched,
+        n_new:           entry.n_new,
+        n_dropped:       entry.n_dropped,
+        user_id:         currentUser.id,
+        user_email:      currentUser.email
+      });
+    if (error) throw error;
+  });
+}
+
+async function loadPriceIndexHistory(profileName, limit) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('price_index_log')
+      .select('index_at, index_pct_orig, index_pct_dkk, currency, n_matched, n_new, n_dropped, user_email')
+      .eq('profile_name', profileName)
+      .order('index_at', { ascending: false })
+      .limit(limit || 24);
+    if (error) throw error;
+    return data || [];
+  });
+}
+
 // Koordinerer master data ved login. Returnerer status-streng til UI.
 //   1) Forsøg load fra Supabase
 //   2) Hvis tom: forsøg auto-lift fra localStorage
@@ -1461,7 +1547,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.7 — konverteringshistorik';
+  const baseVersion = 'Version 2.8.1 — bekræft-knap for snapshot/indeks';
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
@@ -1783,6 +1869,99 @@ function hideConversionHistory() {
 }
 
 document.getElementById('showHistoryBtn').addEventListener('click', showConversionHistory);
+document.getElementById('generateReportBtn').addEventListener('click', generateUpdateReport);
+
+// === v2.8.1: Bekræft og opdater (snapshot + indeks + historik) ===
+function _isSameDay(isoStr) {
+  if (!isoStr) return false;
+  const d = new Date(isoStr);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() &&
+         d.getMonth()    === now.getMonth() &&
+         d.getDate()     === now.getDate();
+}
+
+function _setConfirmButtonConfirmed(timestamp) {
+  const btn = document.getElementById('confirmConversionBtn');
+  const status = document.getElementById('confirmStatus');
+  const t = new Date(timestamp);
+  const hh = String(t.getHours()).padStart(2, '0');
+  const mm = String(t.getMinutes()).padStart(2, '0');
+  btn.classList.add('confirmed');
+  btn.textContent = '✓ Bekræftet kl. ' + hh + ':' + mm;
+  btn.disabled = true;
+  status.style.display = 'none';
+}
+
+function _resetConfirmButton() {
+  const btn = document.getElementById('confirmConversionBtn');
+  const status = document.getElementById('confirmStatus');
+  btn.classList.remove('confirmed');
+  btn.textContent = 'Bekræft og opdater';
+  btn.disabled = false;
+  status.style.display = 'none';
+  status.textContent = '';
+}
+
+async function doConfirmConversion() {
+  const profile = window._profile;
+  if (!profile || !profile.name) {
+    alert('Ingen profil valgt. Kør en konvertering først.');
+    return;
+  }
+  if (!parsedRows || parsedRows.length === 0) {
+    alert('Ingen konverteret data. Kør en konvertering først.');
+    return;
+  }
+
+  const btn = document.getElementById('confirmConversionBtn');
+
+  // Tjek om der allerede er bekræftet samme dag for denne profil
+  let previousSnapshot = null;
+  try {
+    previousSnapshot = await loadPriceSnapshot(profile.name);
+  } catch (e) {
+    console.warn('Kunne ikke tjekke forrige snapshot:', e);
+  }
+
+  if (previousSnapshot && _isSameDay(previousSnapshot.snapshot_at)) {
+    const t = new Date(previousSnapshot.snapshot_at);
+    const hh = String(t.getHours()).padStart(2, '0');
+    const mm = String(t.getMinutes()).padStart(2, '0');
+    const byUser = previousSnapshot.last_user_email || 'ukendt bruger';
+    const ok = confirm(
+      'Denne profil (' + profile.name + ') er allerede bekræftet i dag kl. ' + hh + ':' + mm +
+      ' af ' + byUser + '.\n\n' +
+      'Hvis du fortsætter, OVERSKRIVES dagens snapshot. Det betyder at næste rapport ' +
+      'sammenligner mod denne nye version — ikke mod den oprindelige fra før dagens første bekræftelse.\n\n' +
+      'TIP: Hvis ændringen er minimal (fx leverandøren har rettet en fejl i den prisliste du allerede ' +
+      'har bekræftet), kan du springe bekræftelsen over og vente til næste konvertering.\n\n' +
+      'Overskriv alligevel?'
+    );
+    if (!ok) return;
+  }
+
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = 'Bekræfter…';
+
+  try {
+    // Kør parallelt: snapshot+indeks samt konverteringshistorik
+    await Promise.all([
+      commitSnapshotAndIndex(),
+      recordConversion(profile.name, parsedRows.length)
+    ]);
+    _setConfirmButtonConfirmed(new Date().toISOString());
+  } catch (e) {
+    console.error('Bekræftelse fejlede:', e);
+    alert('Bekræftelse fejlede: ' + (e && e.message ? e.message : String(e)) +
+      '\n\nIngen data er blevet ændret. Prøv igen, eller se F12 → Console for detaljer.');
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+document.getElementById('confirmConversionBtn').addEventListener('click', doConfirmConversion);
 document.getElementById('historyCloseBtn').addEventListener('click', hideConversionHistory);
 // Klik uden for modal-kortet lukker også
 document.getElementById('historyModal').addEventListener('click', e => {
@@ -2706,7 +2885,11 @@ async function processFileAsync() {
           J: itemCat, K: ppc,
           L: profitVal, M: discountT1Val, N: discountT2Val,
           O: oVal, P: pVal, Q: qVal, R: rVal, S: sVal, T: tVal,
-          U: isNew ? 'NEW' : ''
+          U: isNew ? 'NEW' : '',
+          // Ekstra felter til snapshot/rapport (v2.8) — vises ikke i BC-output
+          _costOrig: Math.round(priceNum * discountFactor * 10000) / 10000,
+          _currency: profile.currency || 'DKK',
+          _isNew: isNew
         });
         sheetRowCount++;
       }
@@ -2786,6 +2969,9 @@ async function processFileAsync() {
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     if (window._currentBlobUrl) URL.revokeObjectURL(window._currentBlobUrl);
     window._currentBlobUrl = URL.createObjectURL(blob);
+    // Gem konverterings-kontext til snapshot/rapport (v2.8)
+    window._currentRate = rate;
+    window._currentEolFiltered = eolFiltered;
 
     document.getElementById('totalCount').textContent = parsedRows.length;
     document.getElementById('newCount').textContent = newCount;
@@ -2841,13 +3027,13 @@ async function processFileAsync() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Registrer konvertering i historik (fire-and-forget) — v2.7
-      if (window._profile && window._profile.name) {
-        recordConversion(window._profile.name, parsedRows.length).catch(e => {
-          console.warn('Kunne ikke registrere konvertering i historik (download fungerer stadig):', e);
-        });
-      }
+      // Bemærk (v2.8.1): Download trigger IKKE snapshot/indeks/historik længere.
+      // Det sker først når brugeren klikker "Bekræft og opdater" på Step 2.
     };
+
+    // Nulstil bekræft-knap til "Bekræft og opdater" — hver ny konvertering kræver
+    // ny bekræftelse, også selv om brugeren går tilbage og kører igen (v2.8.1)
+    _resetConfirmButton();
 
     setTimeout(() => goStep(3), 300);
 
@@ -2855,6 +3041,385 @@ async function processFileAsync() {
     progTxt.textContent = 'Fejl: ' + err.message;
     progTxt.style.color = '#c00';
     console.error(err);
+  }
+}
+
+// === v2.8: snapshot + indeks-beregning ===
+// Bygger snapshot fra nuværende parsedRows og gemmer det i Supabase.
+// Samtidig beregnes prisindeks ved sammenligning mod forrige snapshot,
+// hvis et sådan findes.
+async function commitSnapshotAndIndex() {
+  const profile = window._profile;
+  if (!profile || !profile.name) return;
+  const profileName = profile.name;
+  const currency = profile.currency || 'DKK';
+  const rate = window._currentRate || 1;
+
+  // 1) Hent forrige snapshot (kan være null hvis første konvertering)
+  let previous = null;
+  try {
+    previous = await loadPriceSnapshot(profileName);
+  } catch (e) {
+    console.warn('Kunne ikke hente forrige snapshot:', e);
+  }
+
+  // 2) Byg det nye snapshot fra parsedRows
+  const items = parsedRows.map(r => ({
+    id: r.E || r.D,
+    model: r.G,
+    desc: r.B,
+    costOrig: r._costOrig,
+    status: r._isNew ? 'new' : 'active'
+  }));
+  const newSnapshot = { items: items };
+
+  // 3) Sammenlign mod forrige (hvis muligt) og log indeks
+  if (previous && previous.snapshot_data && previous.snapshot_data.items) {
+    const prevMap = {};
+    for (const it of previous.snapshot_data.items) {
+      if (it.id) prevMap[it.id] = it;
+    }
+    let weightedSumOrig = 0;
+    let weightSum = 0;
+    let nMatched = 0;
+    const newIds = new Set(items.map(i => i.id).filter(Boolean));
+    for (const it of items) {
+      if (!it.id) continue;
+      const prev = prevMap[it.id];
+      if (!prev || !prev.costOrig || !it.costOrig) continue;
+      const pct = ((it.costOrig - prev.costOrig) / prev.costOrig) * 100;
+      weightedSumOrig += pct * it.costOrig;
+      weightSum += it.costOrig;
+      nMatched++;
+    }
+    const indexPctOrig = weightSum > 0 ? Math.round((weightedSumOrig / weightSum) * 100) / 100 : null;
+
+    // DKK-indeks: konverter både forrige og nuværende til DKK før beregning
+    let weightedSumDkk = 0;
+    let weightSumDkk = 0;
+    const prevRate = previous.currency_rate || rate;
+    for (const it of items) {
+      if (!it.id) continue;
+      const prev = prevMap[it.id];
+      if (!prev || !prev.costOrig || !it.costOrig) continue;
+      const prevDkk = prev.costOrig * prevRate;
+      const newDkk = it.costOrig * rate;
+      const pctDkk = ((newDkk - prevDkk) / prevDkk) * 100;
+      weightedSumDkk += pctDkk * newDkk;
+      weightSumDkk += newDkk;
+    }
+    const indexPctDkk = weightSumDkk > 0 ? Math.round((weightedSumDkk / weightSumDkk) * 100) / 100 : null;
+
+    const prevIds = new Set(Object.keys(prevMap));
+    let nDropped = 0;
+    for (const pid of prevIds) if (!newIds.has(pid)) nDropped++;
+    let nNew = 0;
+    for (const it of items) if (it.id && !prevMap[it.id]) nNew++;
+
+    if (nMatched > 0) {
+      try {
+        await recordPriceIndex({
+          profile_name: profileName,
+          index_pct_orig: indexPctOrig,
+          index_pct_dkk: indexPctDkk,
+          currency: currency,
+          n_matched: nMatched,
+          n_new: nNew,
+          n_dropped: nDropped
+        });
+      } catch (e) {
+        console.warn('Kunne ikke gemme prisindeks:', e);
+      }
+    }
+  }
+
+  // 4) Gem det nye snapshot (overskriver forrige)
+  await savePriceSnapshot(profileName, newSnapshot, rate);
+}
+
+// === v2.8: opdateringsrapport-generator ===
+// Sammenligner nuværende parsedRows mod forrige snapshot og bygger xlsx.
+async function generateUpdateReport() {
+  const profile = window._profile;
+  if (!profile || !profile.name) {
+    alert('Ingen profil valgt. Kør en konvertering først.');
+    return;
+  }
+  if (!parsedRows || parsedRows.length === 0) {
+    alert('Ingen konverteret data. Kør en konvertering først.');
+    return;
+  }
+
+  const btn = document.getElementById('generateReportBtn');
+  const origLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Genererer rapport…';
+
+  try {
+    const profileName = profile.name;
+    const currency = profile.currency || 'DKK';
+    const rate = window._currentRate || 1;
+
+    // Hent forrige snapshot + indeks-historik
+    const [previous, indexHistory] = await Promise.all([
+      loadPriceSnapshot(profileName),
+      loadPriceIndexHistory(profileName, 24)
+    ]);
+
+    // Byg nuværende items
+    const currentItems = parsedRows.map(r => ({
+      id: r.E || r.D,
+      model: r.G,
+      desc: r.B,
+      costOrig: r._costOrig,
+      costDkk: r.H,
+      status: r._isNew ? 'new' : 'active'
+    }));
+
+    // Lav diff
+    const prevItems = (previous && previous.snapshot_data && previous.snapshot_data.items) || [];
+    const prevMap = {};
+    for (const it of prevItems) if (it.id) prevMap[it.id] = it;
+    const currentMap = {};
+    for (const it of currentItems) if (it.id) currentMap[it.id] = it;
+
+    const newOnes = [];
+    const priceUp = [];
+    const priceDown = [];
+    let unchanged = 0;
+    for (const it of currentItems) {
+      if (!it.id) continue;
+      const prev = prevMap[it.id];
+      if (!prev) {
+        newOnes.push(it);
+        continue;
+      }
+      if (!prev.costOrig || !it.costOrig) { unchanged++; continue; }
+      const diffOrig = it.costOrig - prev.costOrig;
+      const pctOrig = (diffOrig / prev.costOrig) * 100;
+      const prevDkk = prev.costOrig * (previous.currency_rate || rate);
+      const diffDkk = it.costDkk - prevDkk;
+      const pctDkk = prevDkk > 0 ? (diffDkk / prevDkk) * 100 : 0;
+      if (Math.abs(diffOrig) < 0.001) { unchanged++; continue; }
+      const entry = {
+        ...it,
+        prevCostOrig: prev.costOrig,
+        diffOrig: diffOrig,
+        pctOrig: pctOrig,
+        prevCostDkk: prevDkk,
+        diffDkk: diffDkk,
+        pctDkk: pctDkk
+      };
+      if (diffOrig > 0) priceUp.push(entry); else priceDown.push(entry);
+    }
+
+    // Udgåede (var i forrige, mangler nu)
+    const dropped = [];
+    for (const it of prevItems) {
+      if (it.id && !currentMap[it.id]) dropped.push(it);
+    }
+
+    // Format-ændringsadvarsel
+    let formatWarning = '';
+    if (prevItems.length > 0) {
+      const matchRate = (prevItems.length - dropped.length) / prevItems.length;
+      if (matchRate < 0.2 && prevItems.length > 20) {
+        formatWarning = 'ADVARSEL: Kun ' + Math.round(matchRate * 100) + '% af tidligere EAN/ID matcher i den nye prisliste. ' +
+          'Mulig årsag: leverandøren har ændret EAN-format eller -kolonne. ' +
+          'Tjek profil-opsætningen før du sender rapporten ud.';
+      }
+    }
+
+    // Sorter prisstigninger faldende efter % og prisfald stigende efter % (mest dramatiske først)
+    priceUp.sort((a, b) => b.pctOrig - a.pctOrig);
+    priceDown.sort((a, b) => a.pctOrig - b.pctOrig);
+
+    // Beregn indeks for denne konvertering
+    let thisIndexOrig = null;
+    let thisIndexDkk = null;
+    let nMatched = 0;
+    let weightedOrig = 0, weightSumOrig = 0;
+    let weightedDkk = 0, weightSumDkk = 0;
+    for (const it of currentItems) {
+      if (!it.id) continue;
+      const prev = prevMap[it.id];
+      if (!prev || !prev.costOrig || !it.costOrig) continue;
+      const pctO = ((it.costOrig - prev.costOrig) / prev.costOrig) * 100;
+      weightedOrig += pctO * it.costOrig;
+      weightSumOrig += it.costOrig;
+      const prevDkk = prev.costOrig * (previous.currency_rate || rate);
+      const newDkk = it.costDkk;
+      const pctD = prevDkk > 0 ? ((newDkk - prevDkk) / prevDkk) * 100 : 0;
+      weightedDkk += pctD * newDkk;
+      weightSumDkk += newDkk;
+      nMatched++;
+    }
+    if (weightSumOrig > 0) thisIndexOrig = Math.round((weightedOrig / weightSumOrig) * 100) / 100;
+    if (weightSumDkk > 0)  thisIndexDkk  = Math.round((weightedDkk / weightSumDkk) * 100) / 100;
+
+    // Byg xlsx
+    const workbook = new ExcelJS.Workbook();
+    const fmt = (n, d) => (typeof n === 'number' ? n.toFixed(d || 2).replace('.', ',') : '—');
+    const formatDate = iso => {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      return String(d.getDate()).padStart(2, '0') + '-' +
+             String(d.getMonth() + 1).padStart(2, '0') + '-' +
+             d.getFullYear();
+    };
+    const unicodeBar = (pct, max) => {
+      const abs = Math.min(Math.abs(pct), max);
+      const len = Math.round((abs / max) * 12);
+      return '█'.repeat(len) || '▏';
+    };
+
+    // --- Fane: Resumé ---
+    const summary = workbook.addWorksheet('Resumé');
+    summary.columns = [{ width: 32 }, { width: 40 }];
+    summary.addRow(['Opdateringsrapport: ' + profileName]).font = { bold: true, size: 14 };
+    summary.addRow([]);
+    summary.addRow(['Genereret', formatDate(new Date().toISOString()) + ' af ' + (currentUser ? currentUser.email : '')]);
+    summary.addRow(['Forrige konvertering', previous
+      ? formatDate(previous.snapshot_at) + ' af ' + (previous.last_user_email || '?')
+      : 'Ingen tidligere data — første konvertering for denne profil']);
+    summary.addRow(['Valuta', currency]);
+    summary.addRow(['Valutakurs (denne konvertering)', '× ' + fmt(rate, 4)]);
+    summary.addRow([]);
+    if (formatWarning) {
+      const w = summary.addRow(['⚠ ' + formatWarning]);
+      w.font = { bold: true, color: { argb: 'FFCC0000' } };
+      summary.addRow([]);
+    }
+    summary.addRow(['STATISTIK']).font = { bold: true };
+    summary.addRow(['Total varer i ny prisliste', currentItems.length]);
+    summary.addRow(['Nye varer', newOnes.length]);
+    summary.addRow(['Udgåede varer (forsvundet)', dropped.length]);
+    summary.addRow(['Prisstigninger', priceUp.length]);
+    summary.addRow(['Prisfald', priceDown.length]);
+    summary.addRow(['Uændrede priser', unchanged]);
+    summary.addRow([]);
+    summary.addRow(['PRISINDEKS (denne konvertering)']).font = { bold: true };
+    if (nMatched > 0) {
+      summary.addRow(['Vægtet ændring (' + currency + ')', (thisIndexOrig >= 0 ? '+' : '') + fmt(thisIndexOrig, 2) + ' %  (baseret på ' + nMatched + ' sammenlignede varer)']);
+      summary.addRow(['Vægtet ændring (DKK)', (thisIndexDkk >= 0 ? '+' : '') + fmt(thisIndexDkk, 2) + ' %']);
+      summary.addRow(['Heraf valutakurs-effekt', fmt(thisIndexDkk - thisIndexOrig, 2) + ' %']);
+    } else {
+      summary.addRow(['', 'Ingen sammenligning mulig — ingen overlap med forrige snapshot']);
+    }
+
+    // Indeks-historik (op til 6 seneste) i resumé
+    if (indexHistory.length > 0) {
+      summary.addRow([]);
+      summary.addRow(['HISTORIK (' + currency + ', vægtet, op til 6 seneste)']).font = { bold: true };
+      const showHist = indexHistory.slice(0, 6);
+      const maxAbs = Math.max(...showHist.map(h => Math.abs(h.index_pct_orig || 0)), 1);
+      for (const h of showHist) {
+        const sign = (h.index_pct_orig || 0) >= 0 ? '+' : '';
+        const bar = unicodeBar(h.index_pct_orig || 0, maxAbs);
+        summary.addRow([formatDate(h.index_at), sign + fmt(h.index_pct_orig, 2) + ' %  ' + bar]);
+      }
+    }
+
+    // --- Fane: Nye varer ---
+    const newSheet = workbook.addWorksheet('Nye varer');
+    newSheet.columns = [
+      { header: 'EAN/ID', width: 16 },
+      { header: 'Model', width: 22 },
+      { header: 'Beskrivelse', width: 50 },
+      { header: 'Pris (' + currency + ')', width: 14 },
+      { header: 'Pris (DKK)', width: 14 }
+    ];
+    newSheet.getRow(1).font = { bold: true };
+    newOnes.forEach(it => newSheet.addRow([it.id, it.model, it.desc, it.costOrig, it.costDkk]));
+
+    // --- Fane: Udgåede varer ---
+    const dropSheet = workbook.addWorksheet('Udgåede');
+    dropSheet.columns = [
+      { header: 'EAN/ID', width: 16 },
+      { header: 'Model', width: 22 },
+      { header: 'Beskrivelse', width: 50 },
+      { header: 'Sidste kendte pris (' + currency + ')', width: 22 }
+    ];
+    dropSheet.getRow(1).font = { bold: true };
+    dropped.forEach(it => dropSheet.addRow([it.id, it.model, it.desc, it.costOrig]));
+
+    // --- Fane: Prisstigninger ---
+    const upSheet = workbook.addWorksheet('Prisstigninger');
+    upSheet.columns = [
+      { header: 'EAN/ID', width: 16 },
+      { header: 'Model', width: 22 },
+      { header: 'Beskrivelse', width: 40 },
+      { header: 'Gammel (' + currency + ')', width: 14 },
+      { header: 'Ny (' + currency + ')', width: 14 },
+      { header: 'Ændring %', width: 12 },
+      { header: 'Gammel (DKK)', width: 14 },
+      { header: 'Ny (DKK)', width: 14 },
+      { header: 'Ændring DKK %', width: 14 }
+    ];
+    upSheet.getRow(1).font = { bold: true };
+    priceUp.forEach(e => upSheet.addRow([
+      e.id, e.model, e.desc,
+      e.prevCostOrig, e.costOrig, Math.round(e.pctOrig * 100) / 100,
+      Math.round(e.prevCostDkk * 100) / 100, e.costDkk, Math.round(e.pctDkk * 100) / 100
+    ]));
+
+    // --- Fane: Prisfald ---
+    const downSheet = workbook.addWorksheet('Prisfald');
+    downSheet.columns = upSheet.columns;
+    downSheet.getRow(1).font = { bold: true };
+    priceDown.forEach(e => downSheet.addRow([
+      e.id, e.model, e.desc,
+      e.prevCostOrig, e.costOrig, Math.round(e.pctOrig * 100) / 100,
+      Math.round(e.prevCostDkk * 100) / 100, e.costDkk, Math.round(e.pctDkk * 100) / 100
+    ]));
+
+    // --- Fane: Indeks-historik ---
+    const idxSheet = workbook.addWorksheet('Indeks-historik');
+    idxSheet.columns = [
+      { header: 'Dato', width: 14 },
+      { header: 'Ændring (' + currency + ') %', width: 18 },
+      { header: 'Ændring (DKK) %', width: 16 },
+      { header: 'Sammenlignet', width: 12 },
+      { header: 'Nye', width: 8 },
+      { header: 'Udgået', width: 8 },
+      { header: 'Bruger', width: 28 },
+      { header: 'Visuel', width: 18 }
+    ];
+    idxSheet.getRow(1).font = { bold: true };
+    if (indexHistory.length > 0) {
+      const maxAbs = Math.max(...indexHistory.map(h => Math.abs(h.index_pct_orig || 0)), 1);
+      // Vis i kronologisk rækkefølge (ældste først) i historik-fanen
+      [...indexHistory].reverse().forEach(h => {
+        idxSheet.addRow([
+          formatDate(h.index_at),
+          Math.round((h.index_pct_orig || 0) * 100) / 100,
+          Math.round((h.index_pct_dkk || 0) * 100) / 100,
+          h.n_matched, h.n_new, h.n_dropped,
+          h.user_email || '',
+          ((h.index_pct_orig || 0) >= 0 ? '+' : '-') + unicodeBar(h.index_pct_orig || 0, maxAbs)
+        ]);
+      });
+    } else {
+      idxSheet.addRow(['(ingen indeks-historik endnu — denne konvertering bliver den første)']);
+    }
+
+    // Download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (window._fileName || 'prisliste') + '_rapport.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    console.error('Rapport-fejl:', e);
+    alert('Kunne ikke generere rapport: ' + (e && e.message ? e.message : String(e)));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origLabel;
   }
 }
 
@@ -2871,6 +3436,8 @@ function resetAll() {
   document.getElementById('whitelistFileInfo').textContent = '';
   document.getElementById('whitelistError').style.display = 'none';
   document.getElementById('whitelistInput').value = '';
+  // Reset bekræft-knap til initial state (v2.8.1)
+  _resetConfirmButton();
   window._sheetsData = null;
   window._profile = null;
   window._sheetStats = null;
