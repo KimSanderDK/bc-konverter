@@ -197,6 +197,23 @@ footer {
 #confirmConversionBtn.confirmed:hover {
   background: #28a745; color: white;
 }
+/* Dublet-advarsel (v2.8.2) */
+#duplicateWarning {
+  border-radius: 8px; padding: 12px 16px; margin-bottom: 1rem;
+  font-size: 13px; line-height: 1.5;
+}
+#duplicateWarning.dup-warn-yellow {
+  background: #fff8e1; border: 1px solid #ffc107; color: #856404;
+}
+#duplicateWarning.dup-warn-red {
+  background: #fdecea; border: 1px solid #dc3545; color: #721c24;
+}
+#duplicateWarning ul { margin: 8px 0 4px 0; padding-left: 20px; }
+#duplicateWarning li { margin-bottom: 4px; }
+#duplicateWarning .dup-row {
+  font-family: ui-monospace, monospace; font-size: 12px;
+  color: inherit; opacity: 0.85;
+}
 /* Loading overlay (v2.2) */
 #loadingOverlay {
   position: fixed; inset: 0; background: #f7f7f5;
@@ -436,6 +453,7 @@ footer {
 
   <div class="step" id="step3">
     <p class="section-title">4. Klar til download</p>
+    <div id="duplicateWarning" style="display:none;"></div>
     <div class="summary-grid">
       <div class="metric"><div class="val" id="totalCount">0</div><div class="lbl">Varer i alt</div></div>
       <div class="metric"><div class="val" id="newCount">0</div><div class="lbl">Nye varer (NEW)</div></div>
@@ -461,7 +479,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.8.1 — bekræft-knap for snapshot/indeks</footer>
+  <footer id="versionFooter">Version 2.8.2 — dublet-detektion + rapport-fix</footer>
 </div>
 
 <script>
@@ -1547,7 +1565,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.8.1 — bekræft-knap for snapshot/indeks';
+  const baseVersion = 'Version 2.8.2 — dublet-detektion + rapport-fix';
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
@@ -2977,6 +2995,9 @@ async function processFileAsync() {
     document.getElementById('newCount').textContent = newCount;
     document.getElementById('eolCount').textContent = eolFiltered;
     document.getElementById('nopriceCount').textContent = nopriceFiltered;
+    // Tjek for EAN-dubletter og vis advarsel (v2.8.2)
+    const dupsOnStep3 = detectDuplicates(parsedRows);
+    renderDuplicateWarning(dupsOnStep3);
     let sheetStatsHtml = '';
     if (window._sheetStats) {
       sheetStatsHtml = '<br><b>Faner:</b><br>' +
@@ -3048,6 +3069,77 @@ async function processFileAsync() {
 // Bygger snapshot fra nuværende parsedRows og gemmer det i Supabase.
 // Samtidig beregnes prisindeks ved sammenligning mod forrige snapshot,
 // hvis et sådan findes.
+// === v2.8.2: Dublet-detektion + dedup helpers ===
+// Finder EAN/ID-dubletter i parsedRows. Returnerer array af { id, rows, samePrice }.
+function detectDuplicates(rows) {
+  const byId = {};
+  for (const r of rows) {
+    const id = r.E || r.D;
+    if (!id) continue;
+    if (!byId[id]) byId[id] = [];
+    byId[id].push(r);
+  }
+  const dups = [];
+  for (const id of Object.keys(byId)) {
+    if (byId[id].length > 1) {
+      const prices = new Set(byId[id].map(r => r._costOrig));
+      dups.push({
+        id: id,
+        count: byId[id].length,
+        rows: byId[id],
+        samePrice: prices.size === 1
+      });
+    }
+  }
+  return dups;
+}
+
+// Dedupliker items-array på id — sidste forekomst vinder. Bruges af snapshot- og
+// rapport-koden så vi får én konsistent værdi pr. EAN, selv ved dubletter i input.
+function dedupItemsLastWins(items) {
+  const map = new Map();
+  for (const it of items) {
+    if (it && it.id) map.set(it.id, it);
+  }
+  return Array.from(map.values());
+}
+
+// Bygger HTML til dublet-advarslen øverst på Step 2.
+function renderDuplicateWarning(dups) {
+  const el = document.getElementById('duplicateWarning');
+  if (!dups || dups.length === 0) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    el.className = '';
+    return;
+  }
+  const hasDifferentPrices = dups.some(d => !d.samePrice);
+  el.className = hasDifferentPrices ? 'dup-warn-red' : 'dup-warn-yellow';
+  const heading = hasDifferentPrices
+    ? '⚠ Dubletter med <strong>forskellige priser</strong> fundet'
+    : '⚠ Dubletter fundet (samme pris)';
+  let html = '<strong>' + heading + '</strong><br>' +
+    'Følgende EAN/ID forekommer flere gange i prislisten. ' +
+    'Sørg for at hver EAN er unik — kontakt leverandøren hvis nødvendigt. ' +
+    'I rapport og snapshot behandles dubletter som én vare (sidste forekomst vinder).' +
+    '<ul>';
+  for (const d of dups) {
+    html += '<li><strong>' + _escapeHtml(d.id) + '</strong> — ' + d.count + ' forekomster' +
+      (d.samePrice ? '' : ' <em>(forskellige priser)</em>') + ':';
+    html += '<ul>';
+    for (const r of d.rows) {
+      const priceTxt = (r._costOrig !== undefined && r._costOrig !== null) ? r._costOrig : '—';
+      html += '<li class="dup-row">' + _escapeHtml(r.G || '') + ' — ' +
+        _escapeHtml((r.B || '').slice(0, 60)) +
+        ' — ' + priceTxt + ' ' + _escapeHtml(r._currency || '') + '</li>';
+    }
+    html += '</ul></li>';
+  }
+  html += '</ul>';
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+
 async function commitSnapshotAndIndex() {
   const profile = window._profile;
   if (!profile || !profile.name) return;
@@ -3063,14 +3155,15 @@ async function commitSnapshotAndIndex() {
     console.warn('Kunne ikke hente forrige snapshot:', e);
   }
 
-  // 2) Byg det nye snapshot fra parsedRows
-  const items = parsedRows.map(r => ({
+  // 2) Byg det nye snapshot fra parsedRows — dedupliker dubletter (v2.8.2)
+  const rawItems = parsedRows.map(r => ({
     id: r.E || r.D,
     model: r.G,
     desc: r.B,
     costOrig: r._costOrig,
     status: r._isNew ? 'new' : 'active'
   }));
+  const items = dedupItemsLastWins(rawItems);
   const newSnapshot = { items: items };
 
   // 3) Sammenlign mod forrige (hvis muligt) og log indeks
@@ -3166,8 +3259,8 @@ async function generateUpdateReport() {
       loadPriceIndexHistory(profileName, 24)
     ]);
 
-    // Byg nuværende items
-    const currentItems = parsedRows.map(r => ({
+    // Byg nuværende items + dedupliker dubletter (v2.8.2 — sidste vinder)
+    const rawCurrent = parsedRows.map(r => ({
       id: r.E || r.D,
       model: r.G,
       desc: r.B,
@@ -3175,6 +3268,7 @@ async function generateUpdateReport() {
       costDkk: r.H,
       status: r._isNew ? 'new' : 'active'
     }));
+    const currentItems = dedupItemsLastWins(rawCurrent);
 
     // Lav diff
     const prevItems = (previous && previous.snapshot_data && previous.snapshot_data.items) || [];
@@ -3331,6 +3425,42 @@ async function generateUpdateReport() {
     ];
     newSheet.getRow(1).font = { bold: true };
     newOnes.forEach(it => newSheet.addRow([it.id, it.model, it.desc, it.costOrig, it.costDkk]));
+
+    // --- Fane: Dublette EAN'er (v2.8.2) ---
+    // Kun tilføj fanen hvis der faktisk er dubletter i parsedRows
+    const dups = detectDuplicates(parsedRows);
+    if (dups.length > 0) {
+      const dupSheet = workbook.addWorksheet('⚠ Dublette EAN');
+      dupSheet.columns = [
+        { header: 'EAN/ID', width: 16 },
+        { header: 'Model', width: 22 },
+        { header: 'Beskrivelse', width: 50 },
+        { header: 'Pris (' + currency + ')', width: 14 },
+        { header: 'Status', width: 26 }
+      ];
+      dupSheet.getRow(1).font = { bold: true };
+      // Header-info
+      const infoRow = dupSheet.addRow(['Følgende EAN/ID forekommer flere gange i prislisten:']);
+      infoRow.font = { italic: true, color: { argb: 'FF666666' } };
+      dupSheet.addRow([]);
+      for (const d of dups) {
+        const statusTxt = d.samePrice ? 'Samme pris i alle forekomster' : 'FORSKELLIGE priser — alvorlig konflikt';
+        for (let i = 0; i < d.rows.length; i++) {
+          const r = d.rows[i];
+          const row = dupSheet.addRow([
+            d.id,
+            r.G || '',
+            r.B || '',
+            r._costOrig,
+            i === 0 ? statusTxt : ''
+          ]);
+          if (!d.samePrice) {
+            row.eachCell(c => { c.font = { color: { argb: 'FFCC0000' } }; });
+          }
+        }
+        dupSheet.addRow([]); // separator
+      }
+    }
 
     // --- Fane: Udgåede varer ---
     const dropSheet = workbook.addWorksheet('Udgåede');
