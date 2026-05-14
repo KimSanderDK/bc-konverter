@@ -138,6 +138,57 @@ footer {
 .cloud-dot-syncing { background: #f0ad4e; animation: pulse 1s ease-in-out infinite; }
 .cloud-dot-error   { background: #dc3545; }
 @keyframes pulse { 50% { opacity: 0.4; } }
+/* Konverteringshistorik modal (v2.7) */
+#historyModal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: flex-start; justify-content: center;
+  z-index: 999; padding: 4rem 1rem 1rem;
+  overflow-y: auto;
+}
+.modal-card {
+  background: white; border-radius: 12px; padding: 1.5rem 1.75rem 1.75rem;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+  width: 100%; max-width: 720px;
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 1rem;
+}
+.modal-close {
+  background: transparent; border: none; font-size: 24px;
+  cursor: pointer; color: #999; padding: 0 4px;
+  line-height: 1; font-family: inherit;
+}
+.modal-close:hover { color: #1a1a1a; }
+.modal-legend {
+  display: flex; flex-wrap: wrap; gap: 16px; font-size: 11px;
+  color: #666; padding: 8px 12px; background: #f7f7f5;
+  border-radius: 8px; margin-bottom: 1rem;
+}
+.modal-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.hist-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+}
+.hist-green  { background: #28a745; }
+.hist-yellow { background: #f0ad4e; }
+.hist-red    { background: #dc3545; }
+.hist-grey   { background: #c0c0c0; }
+.hist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hist-table th {
+  text-align: left; font-weight: 500; color: #666;
+  padding: 8px 8px; border-bottom: 1px solid #eee; font-size: 12px;
+}
+.hist-table td {
+  padding: 10px 8px; border-bottom: 1px solid #f0f0f0; color: #1a1a1a;
+}
+.hist-table tr.hist-deleted td { color: #aaa; font-style: italic; }
+.hist-table tr.hist-never td { color: #888; }
+.hist-table tr:hover { background: #fafafa; }
+.hist-empty {
+  text-align: center; color: #888; font-size: 13px;
+  padding: 2rem 1rem;
+}
 /* Loading overlay (v2.2) */
 #loadingOverlay {
   position: fixed; inset: 0; background: #f7f7f5;
@@ -173,6 +224,26 @@ footer {
     <p id="loadingMsg" style="font-size:14px; color:#666; margin: 0 0 0.5rem;">Indlæser dine data...</p>
     <div id="loadingError" class="error-box" style="display:none; text-align:left;"></div>
     <button class="btn-secondary" id="loadingRetryBtn" type="button" style="display:none; margin-top: 12px;">Prøv igen</button>
+  </div>
+</div>
+
+<!-- Konverteringshistorik modal (v2.7) -->
+<div id="historyModal" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 style="margin:0; font-size:18px; font-weight:500;">Konverteringshistorik</h2>
+      <button id="historyCloseBtn" type="button" class="modal-close" aria-label="Luk">×</button>
+    </div>
+    <div class="modal-legend">
+      <span><span class="hist-dot hist-green"></span> Under 90 dage</span>
+      <span><span class="hist-dot hist-yellow"></span> 90–180 dage</span>
+      <span><span class="hist-dot hist-red"></span> Over 180 dage</span>
+      <span><span class="hist-dot hist-grey"></span> Aldrig konverteret</span>
+    </div>
+    <div id="historyContent">
+      <div class="spinner" style="margin: 2rem auto;"></div>
+      <p style="text-align:center; color:#666; font-size:13px;">Indlæser…</p>
+    </div>
   </div>
 </div>
 
@@ -248,12 +319,13 @@ footer {
       </div>
       <p style="font-size: 13px; color: #666; margin: 0 0 12px;">
         Upload en ny master data-fil for at opdatere lister over leverandører, kategorier m.m.
-        Dataen gemmes lokalt i din browser — du skal kun uploade igen når noget er ændret.
+        Dataen gemmes i cloud og synkroniseres på tværs af dine enheder.
       </p>
       <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
         <button class="btn-secondary" onclick="document.getElementById('masterInput').click()">Opdater master data</button>
         <input type="file" id="masterInput" accept=".xlsx" style="display:none">
         <button class="btn-secondary" id="resetMasterBtn" onclick="resetMasterData()" style="display:none;">Nulstil til default</button>
+        <button class="btn-secondary" id="showHistoryBtn" type="button">Vis konverteringshistorik</button>
       </div>
       <div id="masterError" style="display:none;" class="error-box"></div>
       <div id="masterSuccess" style="display:none; background: #e8f5e8; border: 1px solid #c0dd97; border-radius: 8px; padding: 12px; font-size: 13px; color: #27500a; margin-top: 1rem;"></div>
@@ -372,7 +444,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.6 — cloud-status indikator + force re-sync</footer>
+  <footer id="versionFooter">Version 2.7 — konverteringshistorik</footer>
 </div>
 
 <script>
@@ -1328,6 +1400,37 @@ async function deleteMasterFromSupabase() {
   });
 }
 
+// === Supabase conversion_history (v2.7) ===
+// Delt globalt på tværs af brugere — én række pr. profil.
+// Registreres når brugeren klikker "Download BC-fil" i Step 2.
+async function recordConversion(profileName, itemCount) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { error } = await supa
+      .from('conversion_history')
+      .upsert({
+        profile_name: profileName,
+        last_converted_at: new Date().toISOString(),
+        item_count: itemCount,
+        last_user_id: currentUser.id,
+        last_user_email: currentUser.email
+      }, { onConflict: 'profile_name' });
+    if (error) throw error;
+  });
+}
+
+async function loadConversionHistory() {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('conversion_history')
+      .select('profile_name, last_converted_at, item_count, last_user_email')
+      .order('last_converted_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  });
+}
+
 // Koordinerer master data ved login. Returnerer status-streng til UI.
 //   1) Forsøg load fra Supabase
 //   2) Hvis tom: forsøg auto-lift fra localStorage
@@ -1358,7 +1461,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.6 — cloud-status indikator + force re-sync';
+  const baseVersion = 'Version 2.7 — konverteringshistorik';
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
@@ -1573,6 +1676,118 @@ async function doForceResync() {
   }
 }
 document.getElementById('forceResyncBtn').addEventListener('click', doForceResync);
+
+// === Konverteringshistorik UI (v2.7) ===
+function _formatDanishDate(isoStr) {
+  if (!isoStr) return '—';
+  const d = new Date(isoStr);
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return day + '-' + month + '-' + year;
+}
+
+function _daysSince(isoStr) {
+  if (!isoStr) return null;
+  const then = new Date(isoStr).getTime();
+  const now = Date.now();
+  return Math.floor((now - then) / (1000 * 60 * 60 * 24));
+}
+
+function _dotClassForDays(days) {
+  if (days === null || days === undefined) return 'hist-grey';
+  if (days < 90) return 'hist-green';
+  if (days < 180) return 'hist-yellow';
+  return 'hist-red';
+}
+
+function _escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderHistoryTable(historyRows) {
+  // Aktive profiler i master data
+  const activeProfileNames = new Set(PROFILES.map(p => p.name));
+  // Map af historik per profilnavn
+  const byName = {};
+  historyRows.forEach(h => { byName[h.profile_name] = h; });
+
+  // Tre grupper:
+  //  1) Profiler med historik OG stadig i master data (sorteret nyeste først — kommer fra DB)
+  //  2) Profiler i master data uden historik (aldrig konverteret)
+  //  3) Historik-rækker hvor profilen er fjernet fra master data (nedtonet)
+  const withHistory = historyRows.filter(h => activeProfileNames.has(h.profile_name));
+  const deletedFromMaster = historyRows.filter(h => !activeProfileNames.has(h.profile_name));
+  const neverConverted = PROFILES
+    .filter(p => !byName[p.name])
+    .map(p => ({ profile_name: p.name, last_converted_at: null, item_count: null, last_user_email: null, _never: true }));
+
+  const all = [...withHistory, ...neverConverted, ...deletedFromMaster.map(r => ({...r, _deleted: true}))];
+
+  if (all.length === 0) {
+    return '<div class="hist-empty">Ingen profiler at vise.</div>';
+  }
+
+  let html = '<table class="hist-table"><thead><tr>' +
+    '<th style="width:24px;"></th>' +
+    '<th>Profil</th>' +
+    '<th>Sidste konvertering</th>' +
+    '<th>Antal</th>' +
+    '<th>Bruger</th>' +
+    '</tr></thead><tbody>';
+
+  for (const row of all) {
+    const days = _daysSince(row.last_converted_at);
+    const dotCls = _dotClassForDays(days);
+    const dateTxt = row.last_converted_at
+      ? _formatDanishDate(row.last_converted_at) +
+        ' <span style="color:#999;">(' + days + ' dage)</span>'
+      : '<span style="color:#888;">Aldrig</span>';
+    const trCls = row._deleted ? 'hist-deleted' : (row._never ? 'hist-never' : '');
+    const profileLabel = _escapeHtml(row.profile_name) +
+      (row._deleted ? ' <span style="font-size:11px;">(slettet)</span>' : '');
+    html += '<tr class="' + trCls + '">' +
+      '<td><span class="hist-dot ' + dotCls + '"></span></td>' +
+      '<td>' + profileLabel + '</td>' +
+      '<td>' + dateTxt + '</td>' +
+      '<td>' + (row.item_count !== null && row.item_count !== undefined ? row.item_count : '—') + '</td>' +
+      '<td style="color:#666;">' + _escapeHtml(row.last_user_email || '') + '</td>' +
+      '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+async function showConversionHistory() {
+  const modal = document.getElementById('historyModal');
+  const content = document.getElementById('historyContent');
+  modal.style.display = 'flex';
+  content.innerHTML = '<div class="spinner" style="margin: 2rem auto;"></div>' +
+    '<p style="text-align:center; color:#666; font-size:13px;">Indlæser…</p>';
+  try {
+    const rows = await loadConversionHistory();
+    content.innerHTML = renderHistoryTable(rows);
+  } catch (e) {
+    console.error('Kunne ikke indlæse konverteringshistorik:', e);
+    content.innerHTML = '<div class="error-box" style="margin:1rem 0;">' +
+      'Kunne ikke indlæse historik: ' + _escapeHtml(e && e.message ? e.message : String(e)) +
+      '</div>';
+  }
+}
+
+function hideConversionHistory() {
+  document.getElementById('historyModal').style.display = 'none';
+}
+
+document.getElementById('showHistoryBtn').addEventListener('click', showConversionHistory);
+document.getElementById('historyCloseBtn').addEventListener('click', hideConversionHistory);
+// Klik uden for modal-kortet lukker også
+document.getElementById('historyModal').addEventListener('click', e => {
+  if (e.target.id === 'historyModal') hideConversionHistory();
+});
 
 // Kopier Intersign-logoet fra app-header til login-kortet
 (function copyLoginLogo() {
@@ -2626,6 +2841,12 @@ async function processFileAsync() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      // Registrer konvertering i historik (fire-and-forget) — v2.7
+      if (window._profile && window._profile.name) {
+        recordConversion(window._profile.name, parsedRows.length).catch(e => {
+          console.warn('Kunne ikke registrere konvertering i historik (download fungerer stadig):', e);
+        });
+      }
     };
 
     setTimeout(() => goStep(3), 300);
