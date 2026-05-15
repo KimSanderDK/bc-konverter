@@ -479,7 +479,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.8.6 — tom Description tilladt (LG-profil)</footer>
+  <footer id="versionFooter">Version 2.8.7 — spring indeks-log over ved same-day overskrivning</footer>
 </div>
 
 <script>
@@ -1577,7 +1577,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.8.6 — tom Description tilladt (LG-profil)';
+  const baseVersion = 'Version 2.8.7 — spring indeks-log over ved same-day overskrivning';
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
@@ -3252,18 +3252,27 @@ async function commitSnapshotAndIndex() {
     for (const it of items) if (it.id && !prevMap[it.id]) nNew++;
 
     if (nMatched > 0) {
-      try {
-        await recordPriceIndex({
-          profile_name: profileName,
-          index_pct_orig: indexPctOrig,
-          index_pct_dkk: indexPctDkk,
-          currency: currency,
-          n_matched: nMatched,
-          n_new: nNew,
-          n_dropped: nDropped
-        });
-      } catch (e) {
-        console.warn('Kunne ikke gemme prisindeks:', e);
+      // v2.8.7: Hvis forrige snapshot er fra SAMME dag, springer vi indeks-loggen over.
+      // Det betyder at brugeren overskriver en bekræftelse fra samme dag — typisk fordi
+      // første konvertering havde en fejl. Indeks skal kun måle ægte leverandør-ændringer
+      // mellem dage, ikke korrektioner af samme prisrunde.
+      const sameDay = previous.snapshot_at && _isSameDay(previous.snapshot_at);
+      if (sameDay) {
+        console.log('Indeks-log sprunget over: forrige snapshot er fra samme dag (korrektion, ikke ny prisrunde).');
+      } else {
+        try {
+          await recordPriceIndex({
+            profile_name: profileName,
+            index_pct_orig: indexPctOrig,
+            index_pct_dkk: indexPctDkk,
+            currency: currency,
+            n_matched: nMatched,
+            n_new: nNew,
+            n_dropped: nDropped
+          });
+        } catch (e) {
+          console.warn('Kunne ikke gemme prisindeks:', e);
+        }
       }
     }
   }
