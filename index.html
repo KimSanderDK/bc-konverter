@@ -479,7 +479,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.8.4 — DKK=1 + valutakurs-fallback til profil</footer>
+  <footer id="versionFooter">Version 2.8.5 — alfabetisk profil-sortering</footer>
 </div>
 
 <script>
@@ -648,6 +648,16 @@ let SHOPIFY_CATS = [...DEFAULT_SHOPIFY_CATS];
 let PPC_OPTIONS = [...DEFAULT_PPC];
 let BRANDS = [...DEFAULT_BRANDS];
 let PROFILES = DEFAULT_PROFILES.map(p => ({...p}));
+
+// v2.8.5: Sortér PROFILES alfabetisk (dansk locale med æøå-håndtering).
+// Kaldes hver gang PROFILES tildeles, så dropdown og andre profil-lister
+// altid er konsistent alfabetiske.
+function sortProfilesAlphabetically() {
+  PROFILES.sort((a, b) =>
+    (a.name || '').localeCompare(b.name || '', 'da', { sensitivity: 'base' })
+  );
+}
+sortProfilesAlphabetically();
 
 const STORAGE_KEY = 'bc_master_data_v7';
 const PROFIT_KEY = 'bc_profit_memory_v1';
@@ -1334,6 +1344,7 @@ function loadMasterFromStorage() {
     if (data.ppc && data.ppc.length) PPC_OPTIONS = data.ppc;
     if (data.brands && data.brands.length) BRANDS = data.brands;
     if (data.profiles && data.profiles.length) PROFILES = data.profiles;
+    sortProfilesAlphabetically();
     window._masterUpdated = data.updated || null;
     return true;
   } catch(e) {
@@ -1386,6 +1397,7 @@ function applyMasterPayload(data) {
   if (data.ppc && data.ppc.length) PPC_OPTIONS = data.ppc;
   if (data.brands && data.brands.length) BRANDS = data.brands;
   if (data.profiles && data.profiles.length) PROFILES = data.profiles;
+  sortProfilesAlphabetically();
   window._masterUpdated = data.updated || null;
   return true;
 }
@@ -1565,7 +1577,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.8.4 — DKK=1 + valutakurs-fallback til profil';
+  const baseVersion = 'Version 2.8.5 — alfabetisk profil-sortering';
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
@@ -1715,6 +1727,7 @@ function resetGlobalsToDefaults() {
   PPC_OPTIONS = [...DEFAULT_PPC];
   BRANDS = [...DEFAULT_BRANDS];
   PROFILES = DEFAULT_PROFILES.map(p => ({...p}));
+  sortProfilesAlphabetically();
   window._masterUpdated = null;
   _profileMemoryCache = {};
   _currencyRatesCache = {};
@@ -2481,6 +2494,7 @@ function handleMasterFile(file) {
       PPC_OPTIONS = newPpc;
       BRANDS = newBrands;
       PROFILES = newProfiles;
+      sortProfilesAlphabetically();
 
       // Gem først til Supabase (primær), derefter til localStorage (backup)
       let cloudOk = false;
@@ -2535,6 +2549,7 @@ async function resetMasterData() {
   PPC_OPTIONS = [...DEFAULT_PPC];
   BRANDS = [...DEFAULT_BRANDS];
   PROFILES = DEFAULT_PROFILES.map(p => ({...p}));
+  sortProfilesAlphabetically();
   window._masterUpdated = null;
   refreshDropdowns();
   updateMasterStatus();
