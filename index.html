@@ -479,7 +479,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.8.3 — header-scan op til række 30 (LG-prisliste)</footer>
+  <footer id="versionFooter">Version 2.8.4 — DKK=1 + valutakurs-fallback til profil</footer>
 </div>
 
 <script>
@@ -840,7 +840,7 @@ async function initProfileMemory() {
 // Currency rates: { 'USD': 6.85, 'EUR': 7.5 } — global per currency, not per profile.
 // All currencies are editable; defaults below are seeded if no value has been saved yet.
 const CURRENCY_KEY = 'bc_currency_rates_v1';
-const CURRENCY_DEFAULTS = { 'EUR': 7.5 };
+const CURRENCY_DEFAULTS = { 'EUR': 7.5, 'DKK': 1 };
 
 // In-memory cache (v2.4) — fyldes ved login, så getCurrencyRate() forbliver synkron.
 let _currencyRatesCache = {};
@@ -1565,7 +1565,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.8.3 — header-scan op til række 30 (LG-prisliste)';
+  const baseVersion = 'Version 2.8.4 — DKK=1 + valutakurs-fallback til profil';
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
@@ -2119,12 +2119,29 @@ function goStep(n) {
     const rateLabel = document.getElementById('exchangeRateLabel');
     const rateHint = document.getElementById('exchangeRateHint');
     rateLabel.textContent = 'Valutakurs (' + currency + ' → DKK)';
-    const lastRate = getCurrencyRate(currency);
-    rateInput.value = lastRate !== '' ? String(lastRate) : '';
+    // v2.8.4: tre-lags fallback for at undgå tomt felt:
+    //   1) Sidst brugte kurs fra cache/CURRENCY_DEFAULTS (DKK=1, EUR=7.5)
+    //   2) Profilens egen currencyRate (fra master data)
+    //   3) Tom streng — brugeren skal selv indtaste
+    const cachedRate = getCurrencyRate(currency);
+    let effectiveRate, rateSource;
+    if (cachedRate !== '') {
+      effectiveRate = cachedRate;
+      rateSource = 'cache';
+    } else if (p.currencyRate !== undefined && p.currencyRate !== null && p.currencyRate !== '') {
+      effectiveRate = p.currencyRate;
+      rateSource = 'profile';
+    } else {
+      effectiveRate = '';
+      rateSource = 'none';
+    }
+    rateInput.value = effectiveRate !== '' ? String(effectiveRate) : '';
     rateInput.readOnly = false;
     rateInput.style.background = '';
-    if (lastRate !== '') {
+    if (rateSource === 'cache') {
       rateHint.textContent = 'Sidst brugte ' + currency + '-kurs vises — ret hvis nødvendigt.';
+    } else if (rateSource === 'profile') {
+      rateHint.textContent = 'Profilens default-kurs for ' + currency + ' vises — ret hvis nødvendigt.';
     } else {
       rateHint.textContent = 'Indtast aktuel kurs for ' + currency + '.';
     }
