@@ -479,7 +479,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.8.5 — alfabetisk profil-sortering</footer>
+  <footer id="versionFooter">Version 2.8.6 — tom Description tilladt (LG-profil)</footer>
 </div>
 
 <script>
@@ -1577,7 +1577,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.8.5 — alfabetisk profil-sortering';
+  const baseVersion = 'Version 2.8.6 — tom Description tilladt (LG-profil)';
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
@@ -2844,8 +2844,18 @@ async function processFileAsync() {
       const idxStatus  = findColByHeader(headers, profile.colStatus);
       const idxWhitelistMatch = useWhitelist ? findColByHeader(headers, whitelistMatchCol) : -1;
 
-      if (idxDesc < 0 || idxModel < 0 || idxPrice < 0) {
-        throw new Error('Fane "' + sheet.name + '" mangler kolonner. Description:' + idxDesc + ' Model:' + idxModel + ' Pris:' + idxPrice);
+      // v2.8.6: Tom profile.colDescription er TILLADT (resulterer i tom kolonne B
+      // i output) — typisk LG-prislisten hvor beskrivelser udfyldes manuelt i BC.
+      // Men hvis kolonnenavnet ER udfyldt og bare ikke kan findes, er det stadig
+      // en konfigurationsfejl.
+      const descConfigured = !!(profile.colDescription && profile.colDescription.trim());
+      const descMissing = descConfigured && idxDesc < 0;
+      if (descMissing || idxModel < 0 || idxPrice < 0) {
+        const missing = [];
+        if (descMissing) missing.push('Description ("' + profile.colDescription + '")');
+        if (idxModel < 0) missing.push('Model ("' + profile.colVendorModel + '")');
+        if (idxPrice < 0) missing.push('Pris ("' + profile.colCostPrice + '")');
+        throw new Error('Fane "' + sheet.name + '" mangler kolonner: ' + missing.join(', '));
       }
       if (useWhitelist && idxWhitelistMatch < 0) {
         throw new Error('Fane "' + sheet.name + '" mangler whitelist match-kolonnen "' + whitelistMatchCol + '".');
@@ -2863,7 +2873,7 @@ async function processFileAsync() {
         const gtinRaw = idxGTIN >= 0 ? normalizeEAN(r[idxGTIN]) : '';
         const prodNoRaw = idxProdNo >= 0 ? normalizeEAN(r[idxProdNo]) : '';
         const model = safeStr(r[idxModel]);
-        let desc = safeStr(r[idxDesc]);
+        let desc = idxDesc >= 0 ? safeStr(r[idxDesc]) : '';
         if (!desc && idxDescFallback >= 0) {
           desc = safeStr(r[idxDescFallback]);
         }
