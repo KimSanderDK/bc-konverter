@@ -479,7 +479,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.8.2 — dublet-detektion + rapport-fix</footer>
+  <footer id="versionFooter">Version 2.8.3 — header-scan op til række 30 (LG-prisliste)</footer>
 </div>
 
 <script>
@@ -1565,7 +1565,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.8.2 — dublet-detektion + rapport-fix';
+  const baseVersion = 'Version 2.8.3 — header-scan op til række 30 (LG-prisliste)';
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
@@ -2606,7 +2606,7 @@ function handleFile(file) {
         const searchTerm = profile.headerSearch.toLowerCase();
         let bestRow = -1;
         let bestScore = 0;
-        for (let i = 0; i < Math.min(rows.length, 20); i++) {
+        for (let i = 0; i < Math.min(rows.length, 30); i++) {
           const r = rows[i];
           if (!r) continue;
           // Lower-cased, trimmed cell values for this row
