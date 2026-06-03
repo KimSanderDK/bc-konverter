@@ -165,6 +165,13 @@ footer {
   z-index: 999; padding: 4rem 1rem 1rem;
   overflow-y: auto;
 }
+/* Restore kategori-hukommelse modal (v2.9.2) */
+#restoreCategoryModal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: flex-start; justify-content: center;
+  z-index: 999; padding: 4rem 1rem 1rem;
+  overflow-y: auto;
+}
 .backup-row {
   border: 1px solid #e0e0e0; border-radius: 8px;
   padding: 12px 14px; margin-bottom: 10px;
@@ -336,6 +343,23 @@ footer {
   </div>
 </div>
 
+<div id="restoreCategoryModal" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 style="margin:0; font-size:18px; font-weight:500;">Gendan kategori-hukommelse fra backup</h2>
+      <button id="restoreCategoryCloseBtn" type="button" class="modal-close" aria-label="Luk">×</button>
+    </div>
+    <p style="font-size:13px; color:#666; margin: 0 0 12px;">
+      De seneste 5 versioner gemmes automatisk før hver import og rydning. Ældre backups slettes når der kommer en ny.
+      Når du gendanner, gemmes den nuværende hukommelse også som backup, så du kan fortryde.
+    </p>
+    <div id="restoreCategoryContent">
+      <div class="spinner" style="margin: 2rem auto;"></div>
+      <p style="text-align:center; color:#666; font-size:13px;">Indlæser backups…</p>
+    </div>
+  </div>
+</div>
+
 <div class="container" id="appContainer" style="display:none;">
   <div id="userBar">
     <span id="appVersionTop" style="font-size: 12px; color: #999; font-weight: 500;"></span>
@@ -438,6 +462,7 @@ footer {
         <button class="btn-secondary" onclick="exportCategoryBackup()">Eksportér backup</button>
         <button class="btn-secondary" onclick="document.getElementById('categoryRestoreInput').click()">Importér backup</button>
         <input type="file" id="categoryRestoreInput" accept=".xlsx" style="display:none">
+        <button class="btn-secondary" id="restoreCategoryBtn" type="button">Gendan fra backup</button>
         <button class="btn-secondary" onclick="clearCategoryMemory()" style="color: #c00;">Ryd hukommelse</button>
       </div>
       <div id="categoryError" style="display:none;" class="error-box"></div>
@@ -546,7 +571,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.9.1 — versionsnummer i top + download master data</footer>
+  <footer id="versionFooter">Version 2.9.2 — auto-backup af kategori-hukommelse</footer>
 </div>
 
 <script>
@@ -559,7 +584,7 @@ const DEFAULT_SHOPIFY_CATS = ["Aio/ACCESSIORIES","Aio/ANDROID","Aio/BRIGHTSIGN",
 
 // v2.9.1: Central version-konstant — ÉT sted at opdatere ved version-bump.
 // Footer (bund) bruger fuld streng; top-baren bruger kun nummeret (før " — ").
-const APP_VERSION_FULL = 'Version 2.9.1 — versionsnummer i top + download master data';
+const APP_VERSION_FULL = 'Version 2.9.2 — auto-backup af kategori-hukommelse';
 
 const DEFAULT_PPC = ["No Relationship","Price=Profit-Cost","Price=Cost+Profit"];
 
@@ -1204,6 +1229,53 @@ async function initCategoryMemory() {
   return 'empty';
 }
 
+// === Supabase category_memory_backup (v2.9.2) ===
+// Gemmer hele kategori-hukommelsen som JSONB-blob. Trigger holder maks 5 pr. bruger.
+async function saveCategoryMemoryBackup(memObj, sourceNote) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    if (!memObj) throw new Error('Ingen data at gemme i backup');
+    const { error } = await supa
+      .from('category_memory_backup')
+      .insert({
+        user_id:           currentUser.id,
+        data:              memObj,
+        uploaded_by_email: currentUser.email,
+        source_note:       sourceNote || null,
+        mapping_count:     Object.keys(memObj).length
+      });
+    if (error) throw error;
+  });
+}
+
+async function loadCategoryMemoryBackups() {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('category_memory_backup')
+      .select('id, uploaded_at, uploaded_by_email, source_note, mapping_count')
+      .eq('user_id', currentUser.id)
+      .order('uploaded_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  });
+}
+
+async function loadCategoryMemoryBackupById(backupId) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('category_memory_backup')
+      .select('data, uploaded_at, source_note')
+      .eq('id', backupId)
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+    if (error) throw error;
+    return data || null;
+  });
+}
+// === slutter Supabase category_memory_backup ===
+
 function showCategoryMessage(success, html) {
   const errBox = document.getElementById('categoryError');
   const okBox = document.getElementById('categorySuccess');
@@ -1448,9 +1520,8 @@ async function downloadMasterData() {
 // Importerer en backup-fil og overskriver hukommelsen
 function handleCategoryRestore(file) {
   if (!file) return;
-  if (!confirm('Importer backup? Eksisterende hukommelse overskrives med indholdet i filen.')) return;
   const reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = async function(e) {
     try {
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, { type: 'array' });
@@ -1473,11 +1544,56 @@ function handleCategoryRestore(file) {
         count++;
       }
 
+      if (count === 0) throw new Error('Filen indeholder ingen gyldige kategori-rækker.');
+
+      // v2.9.2: Tal-sammenligning + auto-backup før overskrivning
+      const currentMem = loadCategoryMemory();
+      const currentCount = Object.keys(currentMem).length;
+
+      if (currentCount > 0) {
+        const arrow = count === currentCount ? '=' : (count < currentCount ? '↓' : '↑');
+        let warnLine = '';
+        // Markant fald: ny er <50% af nuværende OG nuværende > 10
+        if (currentCount > 10 && count < currentCount * 0.5) {
+          warnLine = '\n⚠ ADVARSEL: Backup-filen indeholder MARKANT færre varer end du har nu.\n' +
+                     'Dette er sandsynligvis ikke det du ønsker.\n';
+        }
+        const ok = confirm(
+          'Importér kategori-backup?\n\n' +
+          'Nuværende hukommelse: ' + currentCount + ' varer\n' +
+          'Filen indeholder:     ' + count + ' varer   ' + arrow + '\n' +
+          warnLine + '\n' +
+          'Din nuværende hukommelse gemmes automatisk som backup først, så du kan fortryde.\n\n' +
+          'Erstat hukommelsen med filens indhold?'
+        );
+        if (!ok) {
+          document.getElementById('categoryRestoreInput').value = '';
+          return;
+        }
+        // Gem nuværende som backup FØR overskrivning
+        try {
+          await saveCategoryMemoryBackup(currentMem, 'før import af "' + file.name + '"');
+        } catch (backupErr) {
+          console.error('Backup før import fejlede:', backupErr);
+          const proceed = confirm(
+            'Kunne ikke gemme backup af nuværende hukommelse:\n' +
+            (backupErr && backupErr.message ? backupErr.message : 'ukendt fejl') + '\n\n' +
+            'Vil du fortsætte med import UDEN backup? (ikke anbefalet)'
+          );
+          if (!proceed) {
+            document.getElementById('categoryRestoreInput').value = '';
+            return;
+          }
+        }
+      }
+
       saveCategoryMemory(newMem);
       updateCategoryStatus();
       showCategoryMessage(true, '<strong>Backup importeret!</strong><br>' + count + ' varer indlæst.');
+      document.getElementById('categoryRestoreInput').value = '';
     } catch(err) {
       showCategoryMessage(false, 'Fejl ved import: ' + err.message);
+      document.getElementById('categoryRestoreInput').value = '';
     }
   };
   reader.readAsArrayBuffer(file);
@@ -1490,12 +1606,17 @@ function clearCategoryMemory() {
     showCategoryMessage(false, 'Hukommelsen er allerede tom.');
     return;
   }
-  if (!confirm('Vil du virkelig rydde kategori-hukommelsen for ' + count + ' varer? Denne handling kan ikke fortrydes (medmindre du har en backup).')) return;
+  if (!confirm('Vil du virkelig rydde kategori-hukommelsen for ' + count + ' varer?\n\nDin nuværende hukommelse gemmes automatisk som backup først, så du kan gendanne den via "Gendan fra backup".')) return;
+  // v2.9.2: Gem backup FØR rydning (fire-and-forget — bør ikke blokere rydning)
+  const memCopy = JSON.parse(JSON.stringify(mem));
+  saveCategoryMemoryBackup(memCopy, 'før rydning af hukommelse').catch(e => {
+    console.warn('Backup før rydning fejlede:', e);
+  });
   // Synkron: cache + localStorage
   _categoryMemoryCache = {};
   localStorage.removeItem(CATEGORY_KEY);
   updateCategoryStatus();
-  showCategoryMessage(true, '<strong>Hukommelse ryddet</strong><br>' + count + ' varer fjernet.');
+  showCategoryMessage(true, '<strong>Hukommelse ryddet</strong><br>' + count + ' varer fjernet. (Backup gemt — kan gendannes.)');
   // Async: cloud (fire-and-forget)
   deleteAllCategoryMemoryFromSupabase().catch(e => {
     console.warn('Cloud-sletning af kategori-hukommelse fejlede:', e);
@@ -1938,6 +2059,21 @@ async function showApp() {
         console.log('Initial auto-backup af master_data oprettet (v2.8.8 introduktion).');
       } catch (e) {
         console.warn('Initial auto-backup fejlede (ikke kritisk):', e);
+      }
+    })();
+
+    // v2.9.2: Tilsvarende initial auto-backup af category_memory
+    (async () => {
+      try {
+        const existingBackups = await loadCategoryMemoryBackups();
+        if (existingBackups && existingBackups.length > 0) return;
+        const currentMem = loadCategoryMemory();
+        if (!currentMem || Object.keys(currentMem).length === 0) return;
+        const memCopy = JSON.parse(JSON.stringify(currentMem));
+        await saveCategoryMemoryBackup(memCopy, '[auto-backup ved første kørsel af v2.9.2]');
+        console.log('Initial auto-backup af category_memory oprettet (v2.9.2 introduktion).');
+      } catch (e) {
+        console.warn('Initial kategori-auto-backup fejlede (ikke kritisk):', e);
       }
     })();
   } catch (e) {
@@ -2407,6 +2543,122 @@ document.getElementById('restoreMasterBtn').addEventListener('click', showRestor
 document.getElementById('restoreMasterCloseBtn').addEventListener('click', hideRestoreMasterModal);
 document.getElementById('restoreMasterModal').addEventListener('click', e => {
   if (e.target.id === 'restoreMasterModal') hideRestoreMasterModal();
+});
+
+// === v2.9.2: Restore kategori-hukommelse fra backup ===
+async function showRestoreCategoryModal() {
+  const modal = document.getElementById('restoreCategoryModal');
+  const content = document.getElementById('restoreCategoryContent');
+  content.innerHTML = '<div class="spinner" style="margin: 2rem auto;"></div>' +
+    '<p style="text-align:center; color:#666; font-size:13px;">Indlæser backups…</p>';
+  modal.style.display = 'flex';
+
+  let backups = [];
+  try {
+    backups = await loadCategoryMemoryBackups();
+  } catch (e) {
+    content.innerHTML = '<p style="color:#c00; font-size:13px;">Kunne ikke hente backups: ' +
+      _escapeHtmlSafe(e && e.message ? e.message : String(e)) + '</p>';
+    return;
+  }
+
+  if (!backups || backups.length === 0) {
+    content.innerHTML = '<p style="text-align:center; color:#666; font-size:13px; padding: 2rem 0;">' +
+      'Ingen backups gemt endnu. Der gemmes automatisk en backup næste gang du importerer eller rydder hukommelsen.</p>';
+    return;
+  }
+
+  let html = '';
+  for (const b of backups) {
+    const dateStr = _formatBackupDate(b.uploaded_at);
+    const sizeInfo = (b.mapping_count || 0) + ' varer';
+    const noteLine = b.source_note
+      ? '<div class="backup-row-filename">' + _escapeHtmlSafe(b.source_note) + '</div>'
+      : '';
+    const emailLine = b.uploaded_by_email
+      ? '<div class="backup-row-meta">' + _escapeHtmlSafe(b.uploaded_by_email) + '</div>'
+      : '';
+    html += '<div class="backup-row">' +
+      '<div class="backup-row-info">' +
+        '<div class="backup-row-date">' + _escapeHtmlSafe(dateStr) + '</div>' +
+        '<div class="backup-row-meta">' + _escapeHtmlSafe(sizeInfo) + '</div>' +
+        emailLine +
+        noteLine +
+      '</div>' +
+      '<button class="btn-restore" data-backup-id="' + b.id + '">Gendan</button>' +
+    '</div>';
+  }
+  content.innerHTML = html;
+
+  content.querySelectorAll('.btn-restore').forEach(btn => {
+    btn.addEventListener('click', () => doRestoreCategoryFromBackup(parseInt(btn.dataset.backupId, 10), btn));
+  });
+}
+
+function hideRestoreCategoryModal() {
+  document.getElementById('restoreCategoryModal').style.display = 'none';
+}
+
+async function doRestoreCategoryFromBackup(backupId, btnEl) {
+  if (!backupId) return;
+
+  let backup;
+  try {
+    backup = await loadCategoryMemoryBackupById(backupId);
+  } catch (e) {
+    alert('Kunne ikke hente backup: ' + (e && e.message ? e.message : String(e)));
+    return;
+  }
+  if (!backup || !backup.data) {
+    alert('Backup kunne ikke findes (måske allerede slettet).');
+    return;
+  }
+
+  const restoreCount = Object.keys(backup.data).length;
+  const dateStr = _formatBackupDate(backup.uploaded_at);
+  const currentCount = Object.keys(loadCategoryMemory()).length;
+  const ok = confirm(
+    'Gendan kategori-hukommelse fra ' + dateStr + '?\n\n' +
+    'Nuværende hukommelse: ' + currentCount + ' varer\n' +
+    'Denne backup:         ' + restoreCount + ' varer\n\n' +
+    'Din nuværende hukommelse gemmes som backup først, så du kan gå tilbage.\n\n' +
+    'Fortsæt med gendannelsen?'
+  );
+  if (!ok) return;
+
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.textContent = 'Gendanner…';
+  }
+
+  try {
+    // 1) Gem nuværende som backup først
+    const currentMem = loadCategoryMemory();
+    if (Object.keys(currentMem).length > 0) {
+      const memCopy = JSON.parse(JSON.stringify(currentMem));
+      await saveCategoryMemoryBackup(memCopy, 'før gendannelse fra ' + dateStr);
+    }
+
+    // 2) Anvend backup som ny aktiv hukommelse
+    saveCategoryMemory(backup.data);
+    updateCategoryStatus();
+    hideRestoreCategoryModal();
+    showCategoryMessage(true, '<strong>Kategori-hukommelse gendannet fra ' + _escapeHtmlSafe(dateStr) + '.</strong><br>' +
+      restoreCount + ' varer indlæst.');
+  } catch (e) {
+    console.error('Gendannelse fejlede:', e);
+    alert('Gendannelse fejlede: ' + (e && e.message ? e.message : String(e)));
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.textContent = 'Gendan';
+    }
+  }
+}
+
+document.getElementById('restoreCategoryBtn').addEventListener('click', showRestoreCategoryModal);
+document.getElementById('restoreCategoryCloseBtn').addEventListener('click', hideRestoreCategoryModal);
+document.getElementById('restoreCategoryModal').addEventListener('click', e => {
+  if (e.target.id === 'restoreCategoryModal') hideRestoreCategoryModal();
 });
 
 // Kopier Intersign-logoet fra app-header til login-kortet
