@@ -571,7 +571,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.9.2 — auto-backup af kategori-hukommelse</footer>
+  <footer id="versionFooter">Version 2.9.3 — fix: kategori-sync ved indlæsning fra BC-fil</footer>
 </div>
 
 <script>
@@ -584,7 +584,7 @@ const DEFAULT_SHOPIFY_CATS = ["Aio/ACCESSIORIES","Aio/ANDROID","Aio/BRIGHTSIGN",
 
 // v2.9.1: Central version-konstant — ÉT sted at opdatere ved version-bump.
 // Footer (bund) bruger fuld streng; top-baren bruger kun nummeret (før " — ").
-const APP_VERSION_FULL = 'Version 2.9.2 — auto-backup af kategori-hukommelse';
+const APP_VERSION_FULL = 'Version 2.9.3 — fix: kategori-sync ved indlæsning fra BC-fil';
 
 const DEFAULT_PPC = ["No Relationship","Price=Profit-Cost","Price=Cost+Profit"];
 
@@ -1068,6 +1068,10 @@ function loadCategoryMemory() {
 }
 
 function saveCategoryMemory(newMem) {
+  // VIGTIGT: newMem SKAL være et separat objekt — ikke selve cache-referencen fra
+  // loadCategoryMemory(). Hvis du har hentet cachen og muteret den, så send en dyb kopi
+  // (JSON.parse(JSON.stringify(...))). Ellers ser diff-beregningen herunder objektet mod
+  // sig selv, finder ingen ændringer, og synker INTET til Supabase. (Bug fixet i v2.9.3.)
   // Beregn diff mod nuværende cache for at minimere cloud-kald
   const oldKeys = new Set(Object.keys(_categoryMemoryCache));
   const newKeys = new Set(Object.keys(newMem));
@@ -1337,7 +1341,12 @@ function handleCategoryUpload(file) {
       // 6 consecutive category columns from idxCat1
       const idxCatLast = idxCat1 + 5;
 
-      const mem = loadCategoryMemory();
+      // v2.9.3 FIX: Arbejd på en DYB KOPI af cachen — ikke referencen.
+      // loadCategoryMemory() returnerer _categoryMemoryCache ved reference. Hvis vi
+      // muterer den direkte og sender den til saveCategoryMemory(), kan diff-beregningen
+      // dér ikke se nogen ændring (den sammenligner objektet mod sig selv), og INTET
+      // synces til Supabase. Kopien sikrer at diff'en ser de nye/ændrede EAN'er.
+      const mem = JSON.parse(JSON.stringify(loadCategoryMemory()));
       let saved = 0;
       let updated = 0;
       let skipped = 0;
