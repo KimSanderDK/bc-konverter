@@ -145,6 +145,40 @@ footer {
   z-index: 999; padding: 4rem 1rem 1rem;
   overflow-y: auto;
 }
+/* Restore master data modal (v2.8.8) */
+#restoreMasterModal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: flex-start; justify-content: center;
+  z-index: 999; padding: 4rem 1rem 1rem;
+  overflow-y: auto;
+}
+.backup-row {
+  border: 1px solid #e0e0e0; border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 10px;
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px;
+}
+.backup-row-info {
+  flex: 1; min-width: 0;
+}
+.backup-row-date {
+  font-weight: 600; font-size: 14px; color: #222;
+}
+.backup-row-meta {
+  font-size: 12px; color: #666; margin-top: 4px; line-height: 1.5;
+}
+.backup-row-filename {
+  font-family: ui-monospace, monospace; font-size: 12px;
+  color: #555; margin-top: 2px; word-break: break-all;
+}
+.btn-restore {
+  background: white; color: #222; border: 1px solid #ccc;
+  border-radius: 6px; padding: 6px 14px; cursor: pointer;
+  font-size: 13px; white-space: nowrap;
+}
+.btn-restore:hover {
+  background: #f5f5f5;
+}
 .modal-card {
   background: white; border-radius: 12px; padding: 1.5rem 1.75rem 1.75rem;
   box-shadow: 0 4px 24px rgba(0,0,0,0.15);
@@ -272,6 +306,23 @@ footer {
   </div>
 </div>
 
+<div id="restoreMasterModal" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 style="margin:0; font-size:18px; font-weight:500;">Gendan master data fra backup</h2>
+      <button id="restoreMasterCloseBtn" type="button" class="modal-close" aria-label="Luk">×</button>
+    </div>
+    <p style="font-size:13px; color:#666; margin: 0 0 12px;">
+      De seneste 5 master data-uploads gemmes automatisk. Ældre backups slettes når der kommer en ny.
+      Når du gendanner, gemmes den nuværende master data også som backup, så du kan fortryde.
+    </p>
+    <div id="restoreMasterContent">
+      <div class="spinner" style="margin: 2rem auto;"></div>
+      <p style="text-align:center; color:#666; font-size:13px;">Indlæser backups…</p>
+    </div>
+  </div>
+</div>
+
 <div class="container" id="appContainer" style="display:none;">
   <div id="userBar">
     <span id="cloudStatus" title="">
@@ -349,6 +400,7 @@ footer {
       <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
         <button class="btn-secondary" onclick="document.getElementById('masterInput').click()">Opdater master data</button>
         <input type="file" id="masterInput" accept=".xlsx" style="display:none">
+        <button class="btn-secondary" id="restoreMasterBtn" type="button">Gendan fra backup</button>
         <button class="btn-secondary" id="resetMasterBtn" onclick="resetMasterData()" style="display:none;">Nulstil til default</button>
         <button class="btn-secondary" id="showHistoryBtn" type="button">Vis konverteringshistorik</button>
       </div>
@@ -479,7 +531,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.8.7 — spring indeks-log over ved same-day overskrivning</footer>
+  <footer id="versionFooter">Version 2.8.8 — auto-backup af master data + gendannelses-modal</footer>
 </div>
 
 <script>
@@ -1447,6 +1499,70 @@ async function deleteMasterFromSupabase() {
   });
 }
 
+// === Supabase master_data_backup (v2.8.8) ===
+// Auto-backup arkiv. Tabellen har en trigger der holder maks 5 backups pr. bruger.
+
+// Tæller indhold i en master_data-payload til visning i backup-arkivet.
+function countMasterContents(payload) {
+  return {
+    vendor_count:      (payload && Array.isArray(payload.vendors))     ? payload.vendors.length     : 0,
+    profile_count:     (payload && Array.isArray(payload.profiles))    ? payload.profiles.length    : 0,
+    shopify_cat_count: (payload && Array.isArray(payload.shopifyCats)) ? payload.shopifyCats.length : 0
+  };
+}
+
+// Gemmer en kopi af master_data-payload som backup. Trigger trimmer ældste hvis > 5.
+async function saveMasterDataBackup(payload, sourceFilename) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    if (!payload) throw new Error('Ingen data at gemme i backup');
+    const counts = countMasterContents(payload);
+    const { error } = await supa
+      .from('master_data_backup')
+      .insert({
+        user_id:           currentUser.id,
+        data:              payload,
+        uploaded_by_email: currentUser.email,
+        source_filename:   sourceFilename || null,
+        vendor_count:      counts.vendor_count,
+        profile_count:     counts.profile_count,
+        shopify_cat_count: counts.shopify_cat_count
+      });
+    if (error) throw error;
+  });
+}
+
+// Henter alle backups for nuværende bruger (max 5 pga. trigger), nyeste først.
+async function loadMasterDataBackups() {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('master_data_backup')
+      .select('id, uploaded_at, uploaded_by_email, source_filename, vendor_count, profile_count, shopify_cat_count')
+      .eq('user_id', currentUser.id)
+      .order('uploaded_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  });
+}
+
+// Henter en specifik backup med fuld data-payload (til gendannelse).
+async function loadMasterDataBackupById(backupId) {
+  return _cloud(async () => {
+    if (!currentUser) throw new Error('Ingen logget-ind bruger');
+    const { data, error } = await supa
+      .from('master_data_backup')
+      .select('data, uploaded_at, source_filename')
+      .eq('id', backupId)
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+    if (error) throw error;
+    return data || null;
+  });
+}
+
+// === slutter Supabase master_data_backup ===
+
 // === Supabase conversion_history (v2.7) ===
 // Delt globalt på tværs af brugere — én række pr. profil.
 // Registreres når brugeren klikker "Download BC-fil" i Step 2.
@@ -1577,7 +1693,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.8.7 — spring indeks-log over ved same-day overskrivning';
+  const baseVersion = 'Version 2.8.8 — auto-backup af master data + gendannelses-modal';
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
@@ -1681,6 +1797,24 @@ async function showApp() {
     document.getElementById('loadingOverlay').style.display = 'none';
     document.getElementById('appContainer').style.display = 'block';
     document.getElementById('userEmail').textContent = currentUser ? currentUser.email : '';
+
+    // v2.8.8: Auto-backup ved første kørsel — hvis bruger har master_data men ingen backup endnu.
+    // Sikrer at brugere har mindst én backup fra dag ét med backup-features.
+    // Fire-and-forget — påvirker ikke app-flow hvis det fejler.
+    (async () => {
+      try {
+        const existingBackups = await loadMasterDataBackups();
+        if (existingBackups && existingBackups.length > 0) return; // har allerede backup(s)
+        const currentPayload = await loadMasterFromSupabase();
+        if (!currentPayload) return; // ingen master_data at backup'e
+        const counts = countMasterContents(currentPayload);
+        if (counts.profile_count === 0 && counts.vendor_count === 0 && counts.shopify_cat_count === 0) return;
+        await saveMasterDataBackup(currentPayload, '[auto-backup ved første kørsel af v2.8.8]');
+        console.log('Initial auto-backup af master_data oprettet (v2.8.8 introduktion).');
+      } catch (e) {
+        console.warn('Initial auto-backup fejlede (ikke kritisk):', e);
+      }
+    })();
   } catch (e) {
     console.error('Data load fejlede:', e);
     showLoadingError('Fejl: ' + (e && e.message ? e.message : String(e)));
@@ -1997,6 +2131,157 @@ document.getElementById('historyCloseBtn').addEventListener('click', hideConvers
 // Klik uden for modal-kortet lukker også
 document.getElementById('historyModal').addEventListener('click', e => {
   if (e.target.id === 'historyModal') hideConversionHistory();
+});
+
+// === v2.8.8: Restore master data fra backup ===
+function _formatBackupDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return dd + '-' + mm + '-' + d.getFullYear() + ' ' + hh + ':' + mi;
+}
+
+function _escapeHtmlSafe(s) {
+  if (typeof _escapeHtml === 'function') return _escapeHtml(s);
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function showRestoreMasterModal() {
+  const modal = document.getElementById('restoreMasterModal');
+  const content = document.getElementById('restoreMasterContent');
+  content.innerHTML = '<div class="spinner" style="margin: 2rem auto;"></div>' +
+    '<p style="text-align:center; color:#666; font-size:13px;">Indlæser backups…</p>';
+  modal.style.display = 'flex';
+
+  let backups = [];
+  try {
+    backups = await loadMasterDataBackups();
+  } catch (e) {
+    content.innerHTML = '<p style="color:#c00; font-size:13px;">Kunne ikke hente backups: ' +
+      _escapeHtmlSafe(e && e.message ? e.message : String(e)) + '</p>';
+    return;
+  }
+
+  if (!backups || backups.length === 0) {
+    content.innerHTML = '<p style="text-align:center; color:#666; font-size:13px; padding: 2rem 0;">' +
+      'Ingen backups gemt endnu. Næste gang du opdaterer master data, gemmes en backup automatisk.</p>';
+    return;
+  }
+
+  let html = '';
+  for (const b of backups) {
+    const dateStr = _formatBackupDate(b.uploaded_at);
+    const sizeInfo = (b.profile_count || 0) + ' profiler, ' +
+                     (b.vendor_count || 0) + ' vendors, ' +
+                     (b.shopify_cat_count || 0) + ' Shopify-kat.';
+    const filenameLine = b.source_filename
+      ? '<div class="backup-row-filename">Fra fil: ' + _escapeHtmlSafe(b.source_filename) + '</div>'
+      : '';
+    const emailLine = b.uploaded_by_email
+      ? '<div class="backup-row-meta">Uploaded af ' + _escapeHtmlSafe(b.uploaded_by_email) + '</div>'
+      : '';
+    html += '<div class="backup-row">' +
+      '<div class="backup-row-info">' +
+        '<div class="backup-row-date">' + _escapeHtmlSafe(dateStr) + '</div>' +
+        '<div class="backup-row-meta">' + _escapeHtmlSafe(sizeInfo) + '</div>' +
+        emailLine +
+        filenameLine +
+      '</div>' +
+      '<button class="btn-restore" data-backup-id="' + b.id + '">Gendan</button>' +
+    '</div>';
+  }
+  content.innerHTML = html;
+
+  // Hook event listeners på alle Gendan-knapper
+  content.querySelectorAll('.btn-restore').forEach(btn => {
+    btn.addEventListener('click', () => doRestoreFromBackup(parseInt(btn.dataset.backupId, 10), btn));
+  });
+}
+
+function hideRestoreMasterModal() {
+  document.getElementById('restoreMasterModal').style.display = 'none';
+}
+
+async function doRestoreFromBackup(backupId, btnEl) {
+  if (!backupId) return;
+
+  // Hent fuld data for valgt backup
+  let backup;
+  try {
+    backup = await loadMasterDataBackupById(backupId);
+  } catch (e) {
+    alert('Kunne ikke hente backup: ' + (e && e.message ? e.message : String(e)));
+    return;
+  }
+  if (!backup || !backup.data) {
+    alert('Backup kunne ikke findes (måske allerede slettet).');
+    return;
+  }
+
+  const counts = countMasterContents(backup.data);
+  const dateStr = _formatBackupDate(backup.uploaded_at);
+  const filename = backup.source_filename ? '\n(fra fil: ' + backup.source_filename + ')' : '';
+  const ok = confirm(
+    'Gendan master data fra ' + dateStr + '?' + filename + '\n\n' +
+    'Den indeholder:\n' +
+    '  ' + counts.profile_count + ' profiler\n' +
+    '  ' + counts.vendor_count + ' vendors\n' +
+    '  ' + counts.shopify_cat_count + ' Shopify-kategorier\n\n' +
+    'Din nuværende master data gemmes som backup først, så du kan altid gå tilbage.\n\n' +
+    'Fortsæt med gendannelsen?'
+  );
+  if (!ok) return;
+
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.textContent = 'Gendanner…';
+  }
+
+  try {
+    // 1) Gem nuværende som backup
+    let currentPayload = null;
+    try {
+      currentPayload = await loadMasterFromSupabase();
+    } catch (e) {
+      console.warn('Kunne ikke hente nuværende for backup før gendannelse:', e);
+    }
+    if (currentPayload) {
+      await saveMasterDataBackup(currentPayload, '[før gendannelse fra ' + dateStr + ']');
+    }
+
+    // 2) Anvend backup som ny aktiv master_data
+    applyMasterPayload(backup.data);
+    await saveMasterToSupabase();
+    saveMasterToStorage();
+    refreshDropdowns();
+    updateMasterStatus();
+    hideRestoreMasterModal();
+
+    const msg = document.getElementById('masterSuccess');
+    msg.style.display = 'block';
+    msg.innerHTML = '<strong>Master data gendannet fra ' + _escapeHtmlSafe(dateStr) + '.</strong><br>' +
+      counts.profile_count + ' profiler, ' +
+      counts.vendor_count + ' vendors, ' +
+      counts.shopify_cat_count + ' Shopify-kategorier.';
+  } catch (e) {
+    console.error('Gendannelse fejlede:', e);
+    alert('Gendannelse fejlede: ' + (e && e.message ? e.message : String(e)));
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.textContent = 'Gendan';
+    }
+  }
+}
+
+document.getElementById('restoreMasterBtn').addEventListener('click', showRestoreMasterModal);
+document.getElementById('restoreMasterCloseBtn').addEventListener('click', hideRestoreMasterModal);
+document.getElementById('restoreMasterModal').addEventListener('click', e => {
+  if (e.target.id === 'restoreMasterModal') hideRestoreMasterModal();
 });
 
 // Kopier Intersign-logoet fra app-header til login-kortet
@@ -2484,6 +2769,72 @@ function handleMasterFile(file) {
               useWhitelist: iUseWhitelist >= 0 ? safeStr(r[iUseWhitelist]).toLowerCase() === 'yes' : false,
               whitelistMatchColumn: iWhitelistCol >= 0 ? safeStr(r[iWhitelistCol]) : 'ean code'
             });
+          }
+        }
+      }
+
+      // v2.8.8: Gem nuværende master_data som backup FØR vi overskriver.
+      // Hent nuværende data fra Supabase, vis bekræftelses-dialog med tal-sammenligning,
+      // og gem som backup hvis brugeren godkender.
+      let currentPayload = null;
+      try {
+        currentPayload = await loadMasterFromSupabase();
+      } catch (e) {
+        console.warn('Kunne ikke hente nuværende master_data til backup-sammenligning:', e);
+      }
+
+      const oldCounts = currentPayload ? countMasterContents(currentPayload) : { vendor_count: 0, profile_count: 0, shopify_cat_count: 0 };
+      const newCounts = {
+        vendor_count:      newVendors.length,
+        profile_count:     newProfiles.length,
+        shopify_cat_count: newShops.length
+      };
+
+      // Byg sammenligningstekst — markér eventuelle markante fald
+      const lines = [];
+      const warnIfDrop = (label, oldN, newN) => {
+        const arrow = oldN === newN ? '=' : (newN < oldN ? '↓' : '↑');
+        let line = '  ' + label + ': ' + oldN + ' → ' + newN + '  ' + arrow;
+        // Markant fald: nyt er <50% af gammelt OG gammel havde >10 items
+        if (oldN > 10 && newN < oldN * 0.5) line += '  ⚠ stort fald';
+        return line;
+      };
+      lines.push(warnIfDrop('Profiler        ', oldCounts.profile_count,     newCounts.profile_count));
+      lines.push(warnIfDrop('Vendors         ', oldCounts.vendor_count,      newCounts.vendor_count));
+      lines.push(warnIfDrop('Shopify-kategorier', oldCounts.shopify_cat_count, newCounts.shopify_cat_count));
+
+      const hasMarkedDrop = lines.some(l => l.includes('⚠'));
+      const dialogText =
+        (hasMarkedDrop ? '⚠ ADVARSEL: Markant fald i mindst én kategori.\n\n' : '') +
+        'Erstat master data?\n\n' +
+        'Filen "' + file.name + '" indeholder:\n\n' +
+        lines.join('\n') + '\n\n' +
+        'Den nuværende master data gemmes automatisk som backup (op til 5 seneste bevares).\n' +
+        'Du kan altid gendanne via "Gendan fra backup"-knappen.\n\n' +
+        'Overskriv master data?';
+
+      // Spring dialog over hvis nuværende master_data er tom (første upload)
+      const hasExistingData = currentPayload && (oldCounts.profile_count > 0 || oldCounts.vendor_count > 0 || oldCounts.shopify_cat_count > 0);
+      if (hasExistingData) {
+        if (!confirm(dialogText)) {
+          // Brugeren annullerede — ryd input og afbryd
+          masterInput.value = '';
+          return;
+        }
+        // Gem nuværende som backup FØR overskrivning
+        try {
+          await saveMasterDataBackup(currentPayload, file.name);
+        } catch (backupErr) {
+          // Backup fejlede — spørg brugeren om de vil fortsætte uden backup
+          console.error('Backup fejlede:', backupErr);
+          const proceed = confirm(
+            'Kunne ikke gemme backup af nuværende master data:\n' +
+            (backupErr && backupErr.message ? backupErr.message : 'ukendt fejl') + '\n\n' +
+            'Vil du fortsætte med upload UDEN backup? (ikke anbefalet)'
+          );
+          if (!proceed) {
+            masterInput.value = '';
+            return;
           }
         }
       }
