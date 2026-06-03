@@ -431,7 +431,7 @@ footer {
         Appen læser kategorierne pr. EAN og udfylder dem automatisk i fremtidige konverteringer.
       </p>
       <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-        <button class="btn-secondary" onclick="document.getElementById('categoryInput').click()">Gem kategorier fra BC-fil</button>
+        <button class="btn-secondary" onclick="document.getElementById('categoryInput').click()">Indlæs kategorier fra BC-fil</button>
         <input type="file" id="categoryInput" accept=".xlsx" style="display:none">
         <button class="btn-secondary" onclick="exportCategoryBackup()">Eksportér backup</button>
         <button class="btn-secondary" onclick="document.getElementById('categoryRestoreInput').click()">Importér backup</button>
@@ -544,7 +544,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.8.9 — visuelt adskilte sektion-kort</footer>
+  <footer id="versionFooter">Version 2.9.0 — knap omdøbt: Indlæs kategorier</footer>
 </div>
 
 <script>
@@ -1706,7 +1706,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.8.9 — visuelt adskilte sektion-kort';
+  const baseVersion = 'Version 2.9.0 — knap omdøbt: Indlæs kategorier';
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
