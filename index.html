@@ -338,6 +338,7 @@ footer {
 
 <div class="container" id="appContainer" style="display:none;">
   <div id="userBar">
+    <span id="appVersionTop" style="font-size: 12px; color: #999; font-weight: 500;"></span>
     <span id="cloudStatus" title="">
       <span id="cloudStatusDot" class="cloud-dot cloud-dot-idle"></span>
       <span id="cloudStatusText"></span>
@@ -413,6 +414,7 @@ footer {
       <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
         <button class="btn-secondary" onclick="document.getElementById('masterInput').click()">Opdater master data</button>
         <input type="file" id="masterInput" accept=".xlsx" style="display:none">
+        <button class="btn-secondary" id="downloadMasterBtn" type="button" onclick="downloadMasterData()">Download kopi</button>
         <button class="btn-secondary" id="restoreMasterBtn" type="button">Gendan fra backup</button>
         <button class="btn-secondary" id="resetMasterBtn" onclick="resetMasterData()" style="display:none;">Nulstil til default</button>
         <button class="btn-secondary" id="showHistoryBtn" type="button">Vis konverteringshistorik</button>
@@ -544,7 +546,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.9.0 — knap omdøbt: Indlæs kategorier</footer>
+  <footer id="versionFooter">Version 2.9.1 — versionsnummer i top + download master data</footer>
 </div>
 
 <script>
@@ -554,6 +556,10 @@ const DEFAULT_VENDORS = ["AD SERIES DISPLAYS ## 8700055520","Alletiders Regnskab
 const DEFAULT_ITEM_CATS = ["ACCESSORIES","ARMAGARDE","AUDIO","BLUEFIN","BRIGHTSIGN SOFTWARE","CABLES","COMPLETE SYSTEMS","ELEGANCE","ENCLOSURE","FRAGT","GLORYSTAR","HANNSPREE","IIYAMA","KERCHAN","LG","MICROSOFT","MISC ENCLOSURE","MISC SCREENS","MISC SOFTWARE","MISC TABLETS","MOUNTS","NEC","PLAYERS","SCREENS","SIGNAL","SOFTWARE","TABLETS"];
 
 const DEFAULT_SHOPIFY_CATS = ["Aio/ACCESSIORIES","Aio/ANDROID","Aio/BRIGHTSIGN","Aio/TABLET","Aio/WINDOWS","AUDIO","Audio/ACCESSORIES","Audio/AMPLIFIER","Audio/AVIO-DANTE","Audio/DSP","Audio/SPEAKER","CABLES","Cables/AUDIO","Cables/COMPUTER","Cables/DISPLAY","Cables/POWER","Dispaly/OLED","DISPLAY","Display/12-18 HOURS","Display/24 HOURS","Display/ACCESSORIES","Display/DESKTOP","Display/HIGH BRIGHTNESS","Display/HOSPITALITY TV","Display/LED","Display/OUTDOOR","Display/STRETCH","Display/TOUCH SCREENS","Display/VIDEO WALL","Display/WARRANTY","DISPLAYER","Displayer/FRAMED","Displayer/OPEN FRAME","Displayer/STRETCH","Latest Products","MOUNTS","Mounts/CEILING","Mounts/DESK","Mounts/FLOOR","Mounts/VIDEO WALL","Mounts/WALL","PLAYER","Player/ACCESSORIES","Player/ANDROID","Player/BRIGHTSIGN","Player/LINUX","Player/OPS","Player/WINDOWS","PROJECTOR","Projector/ACCESSORIES","Projector/PROFESSIONAL","SIGNAL MANAGEMENT","Signal/EXTENDER","Signal/IO CONTROL","Signal/IO Control/ACCESSORIES","Signal/IO Control/AUDIO SENSORS","Signal/IO Control/BUTTONS","Signal/IO Control/CONTROLLER","Signal/IO Control/INTERFACE / CABLES","Signal/IO Control/LED LIGHTING","Signal/IO Control/PEOPLE TRACKING","Signal/IO Control/PICK-UP SENSORS","Signal/IO Control/VISUAL SENSORS","Signal/ROUTER","Signal/SPLITTER","Signal/VIDEO WALL","SOFTWARE","Software/OPERATING SYSTEM","Software/SIGNAGE","Special/Audio/Amplifier/100V","Special/Audio/Amplifier/MULTI CHANNEL","Special/Audio/Amplifier/NETWORKED","Special/Audio/Amplifier/WIRELESS","Special/Audio/FOCUS POINT","Special/Audio/INVISIBLE","Special/Audio/NETWORKED","Special/Audio/OUTDOOR","Special/Audio/Speaker/FOCUS POINT","Special/Audio/Speaker/IN-CEILING","Special/Audio/Speaker/INVISIBLE","Special/Audio/Speaker/NETWORKED","Special/Audio/Speaker/OUTDOOR","Special/Audio/Speaker/PENDANT","Special/HANGING","Stand/ACCESSORIES","Stand/ENCLOSURE","Stand/INDOOR","Stand/OUTDOOR","STOCK SALE"];
+
+// v2.9.1: Central version-konstant — ÉT sted at opdatere ved version-bump.
+// Footer (bund) bruger fuld streng; top-baren bruger kun nummeret (før " — ").
+const APP_VERSION_FULL = 'Version 2.9.1 — versionsnummer i top + download master data';
 
 const DEFAULT_PPC = ["No Relationship","Price=Profit-Cost","Price=Cost+Profit"];
 
@@ -1333,6 +1339,112 @@ async function exportCategoryBackup() {
   showCategoryMessage(true, '<strong>Backup downloadet</strong><br>' + keys.length + ' varer eksporteret.');
 }
 
+// === v2.9.1: Download kopi af master data som xlsx ===
+// Reproducerer den oprindelige MasterLookupData.xlsx-struktur (6 faner), så filen
+// både kan inspiceres OG re-uploades via "Opdater master data".
+async function downloadMasterData() {
+  if (!PROFILES || PROFILES.length === 0) {
+    alert('Ingen master data at downloade.');
+    return;
+  }
+  const wb = new ExcelJS.Workbook();
+
+  // --- VendorProfiles (kompleks — alle kolonner i samme rækkefølge som parsing forventer) ---
+  const profWs = wb.addWorksheet('VendorProfiles');
+  const profHeaders = [
+    'Profile Name', 'Sheets', 'Header Search', 'Col Description', 'Col Description Fallback',
+    'Col Product Item No', 'Col GTIN', 'Col Vendor Model', 'Col Cost Price', 'Col Shipping Cost',
+    'Col Status', 'EOL Markers', 'New Markers', 'Currency Rate', 'Currency',
+    'Default Discount %', 'Default Brand', 'Default Vendor', 'Default Item Cat', 'Default PPC',
+    'Use Whitelist', 'Whitelist Match Column'
+  ];
+  profWs.addRow(profHeaders);
+  profWs.getRow(1).font = { bold: true };
+  PROFILES.forEach(p => {
+    profWs.addRow([
+      p.name || '',
+      (p.sheets || []).join(', '),
+      p.headerSearch || 'ean',
+      p.colDescription || '',
+      p.colDescriptionFallback || '',
+      p.colProductItemNo || '',
+      p.colGTIN || '',
+      p.colVendorModel || '',
+      p.colCostPrice || '',
+      p.colShippingCost || '',
+      p.colStatus || '',
+      (p.eolMarkers || []).join(', '),
+      (p.newMarkers || []).join(', '),
+      (p.currencyRate !== undefined && p.currencyRate !== null) ? p.currencyRate : 1,
+      p.currency || 'EUR',
+      (p.defaultDiscount !== undefined && p.defaultDiscount !== null) ? p.defaultDiscount : 0,
+      p.defaultBrand || '',
+      p.defaultVendor || '',
+      p.defaultItemCat || '',
+      p.defaultPPC || '',
+      p.useWhitelist ? 'yes' : 'no',
+      p.whitelistMatchColumn || 'ean code'
+    ]);
+  });
+  profWs.getColumn(1).width = 22;
+  for (let i = 2; i <= profHeaders.length; i++) profWs.getColumn(i).width = 18;
+
+  // --- Vendor (data i kolonne C — kolonne A+B tomme, som original) ---
+  const venWs = wb.addWorksheet('Vendor');
+  venWs.addRow(['', '', 'Vendor']);
+  venWs.getRow(1).font = { bold: true };
+  VENDORS.forEach(v => venWs.addRow(['', '', v]));
+  venWs.getColumn(3).width = 30;
+
+  // --- ItemCategory (kolonne A) ---
+  const itemWs = wb.addWorksheet('ItemCategory');
+  itemWs.addRow(['ItemCategory']);
+  itemWs.getRow(1).font = { bold: true };
+  ITEM_CATS.forEach(c => itemWs.addRow([c]));
+  itemWs.getColumn(1).width = 30;
+
+  // --- ShopifyCategories (kolonne A) ---
+  const shopWs = wb.addWorksheet('ShopifyCategories');
+  shopWs.addRow(['ShopifyCategory']);
+  shopWs.getRow(1).font = { bold: true };
+  SHOPIFY_CATS.forEach(c => shopWs.addRow([c]));
+  shopWs.getColumn(1).width = 40;
+
+  // --- PriceProfitCalculation (kolonne A) ---
+  const ppcWs = wb.addWorksheet('PriceProfitCalculation');
+  ppcWs.addRow(['Calculation']);
+  ppcWs.getRow(1).font = { bold: true };
+  PPC_OPTIONS.forEach(v => ppcWs.addRow([v]));
+  ppcWs.getColumn(1).width = 26;
+
+  // --- BrandCode (kolonne A) ---
+  const brandWs = wb.addWorksheet('BrandCode');
+  brandWs.addRow(['BrandCode']);
+  brandWs.getRow(1).font = { bold: true };
+  BRANDS.forEach(b => brandWs.addRow([b]));
+  brandWs.getColumn(1).width = 30;
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const today = new Date().toISOString().slice(0, 10);
+  a.download = 'MasterLookupData_kopi_' + today + '.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  const msg = document.getElementById('masterSuccess');
+  if (msg) {
+    msg.style.display = 'block';
+    msg.innerHTML = '<strong>Master data downloadet</strong><br>' +
+      PROFILES.length + ' profiler, ' + VENDORS.length + ' vendors, ' +
+      SHOPIFY_CATS.length + ' Shopify-kategorier. Filen kan re-uploades via "Opdater master data".';
+  }
+}
+
 // Importerer en backup-fil og overskriver hukommelsen
 function handleCategoryRestore(file) {
   if (!file) return;
@@ -1706,7 +1818,7 @@ function updateMasterStatus() {
   const el = document.getElementById('masterDataStatus');
   const resetBtn = document.getElementById('resetMasterBtn');
   const footer = document.getElementById('versionFooter');
-  const baseVersion = 'Version 2.9.0 — knap omdøbt: Indlæs kategorier';
+  const baseVersion = APP_VERSION_FULL;
   if (window._masterUpdated) {
     const d = new Date(window._masterUpdated);
     const dateStr = d.toLocaleDateString('da-DK') + ' ' + d.toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
@@ -2302,6 +2414,15 @@ document.getElementById('restoreMasterModal').addEventListener('click', e => {
   const headerImg = document.querySelector('#appContainer img[alt="Intersign logo"]');
   const loginImg = document.getElementById('loginLogoImg');
   if (headerImg && loginImg) loginImg.src = headerImg.src;
+})();
+
+// v2.9.1: Vis kun versions-nummeret i toppen (uden den forklarende tekst).
+(function setTopVersion() {
+  const el = document.getElementById('appVersionTop');
+  if (!el) return;
+  // Udtræk "Version X.Y.Z" — alt før " — "
+  const shortVersion = APP_VERSION_FULL.split(' — ')[0];
+  el.textContent = shortVersion;
 })();
 
 // Auth-state lytter: håndterer login, logout og session-refresh
