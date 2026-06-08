@@ -571,7 +571,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.9.5 — fix: CSV komma-decimal pris-parsing</footer>
+  <footer id="versionFooter">Version 2.9.6 — fix: EAN-match ignorerer ledende nuller (UPC=EAN)</footer>
 </div>
 
 <script>
@@ -584,7 +584,7 @@ const DEFAULT_SHOPIFY_CATS = ["Aio/ACCESSIORIES","Aio/ANDROID","Aio/BRIGHTSIGN",
 
 // v2.9.1: Central version-konstant — ÉT sted at opdatere ved version-bump.
 // Footer (bund) bruger fuld streng; top-baren bruger kun nummeret (før " — ").
-const APP_VERSION_FULL = 'Version 2.9.5 — fix: CSV komma-decimal pris-parsing';
+const APP_VERSION_FULL = 'Version 2.9.6 — fix: EAN-match ignorerer ledende nuller (UPC=EAN)';
 
 const DEFAULT_PPC = ["No Relationship","Price=Profit-Cost","Price=Cost+Profit"];
 
@@ -2752,6 +2752,17 @@ function normalizeEAN(v) {
   return safeStr(v).replace(/\u00a0/g,'').replace(/\s/g,'').replace(/^'+/,'');
 }
 
+// v2.9.6: Kanonisk nøgle til EAN/GTIN-matching. Fjerner ledende nuller, så en
+// amerikansk UPC-A (12 cifre, fx "606449175073") matcher den tilsvarende EAN-13
+// (13 cifre med 0 foran, fx "0606449175073") — det er samme produkt.
+// Bruges KUN til sammenligning/opslag (whitelist), IKKE til output hvor rå-værdien bevares.
+function eanMatchKey(v) {
+  const s = normalizeEAN(v);
+  if (s === '') return '';
+  const stripped = s.replace(/^0+/, '');
+  return stripped === '' ? '0' : stripped;  // "000" → "0" (bevar ægte nul-værdi)
+}
+
 // Parse CSV text into a 2D array. Auto-detects delimiter (, ; or tab).
 // Handles quoted fields with embedded commas and escaped quotes.
 function parseCSV(text) {
@@ -3042,8 +3053,8 @@ function handleWhitelistFile(file) {
         values = values.slice(1);
       }
 
-      // Normalize: strip non-breaking spaces and whitespace
-      const normalized = new Set(values.map(v => v.replace(/\u00a0/g, '').replace(/\s/g, '').replace(/^'+/, '')));
+      // Normalize med eanMatchKey: strip ledende nuller så UPC-A og EAN-13 matcher (v2.9.6)
+      const normalized = new Set(values.map(v => eanMatchKey(v)));
       normalized.delete('');
 
       if (normalized.size === 0) {
@@ -3680,7 +3691,7 @@ async function processFileAsync() {
 
         // Whitelist check (før EOL/pris, så whitelist-filterering er det første der sker)
         if (useWhitelist) {
-          const matchRaw = normalizeEAN(r[idxWhitelistMatch]);
+          const matchRaw = eanMatchKey(r[idxWhitelistMatch]);
           if (!matchRaw || !whitelistSet.has(matchRaw)) {
             whitelistFiltered++;
             continue;
