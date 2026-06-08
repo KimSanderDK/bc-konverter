@@ -571,7 +571,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.9.4 — fix: hent alle kategorier over 1000 (pagination)</footer>
+  <footer id="versionFooter">Version 2.9.5 — fix: CSV komma-decimal pris-parsing</footer>
 </div>
 
 <script>
@@ -584,7 +584,7 @@ const DEFAULT_SHOPIFY_CATS = ["Aio/ACCESSIORIES","Aio/ANDROID","Aio/BRIGHTSIGN",
 
 // v2.9.1: Central version-konstant — ÉT sted at opdatere ved version-bump.
 // Footer (bund) bruger fuld streng; top-baren bruger kun nummeret (før " — ").
-const APP_VERSION_FULL = 'Version 2.9.4 — fix: hent alle kategorier over 1000 (pagination)';
+const APP_VERSION_FULL = 'Version 2.9.5 — fix: CSV komma-decimal pris-parsing';
 
 const DEFAULT_PPC = ["No Relationship","Price=Profit-Cost","Price=Cost+Profit"];
 
@@ -2794,6 +2794,49 @@ function parseCSV(text) {
   return rows;
 }
 
+// v2.9.5: Robust pris-parsing der håndterer både xlsx-talceller og CSV-strenge med
+// komma-decimal (svensk/europæisk format). Kritisk: "16215,09" skal blive 16215.09 —
+// IKKE 1621509 (som SheetJS' CSV-parser ellers laver det til ved at fjerne kommaet).
+function parsePrice(raw) {
+  // xlsx-talcelle (rigtigt JS-tal) — brug urørt
+  if (typeof raw === 'number') return raw;
+  if (raw === null || raw === undefined) return NaN;
+  let s = String(raw).trim();
+  if (s === '') return NaN;
+  // Fjern alt undtagen cifre, komma, punktum og minus (valutasymboler, mellemrum, NBSP, apostrof)
+  s = s.replace(/[^\d.,\-]/g, '');
+  if (s === '' || s === '-') return NaN;
+
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    // Både komma og punktum: det SIDSTE af dem er decimaltegnet, det andet er tusind-separator
+    if (lastComma > lastDot) {
+      s = s.replace(/\./g, '').replace(',', '.');  // europæisk: 1.621.509,09
+    } else {
+      s = s.replace(/,/g, '');                     // amerikansk: 1,621,509.09
+    }
+  } else if (lastComma !== -1) {
+    // Kun komma til stede
+    const firstComma = s.indexOf(',');
+    if (firstComma !== lastComma) {
+      // Flere kommaer: sidste er decimal hvis 1-2 cifre efter, ellers alle tusind-separatorer
+      const after = s.length - lastComma - 1;
+      if (after <= 2) {
+        s = s.slice(0, lastComma).replace(/,/g, '') + '.' + s.slice(lastComma + 1);
+      } else {
+        s = s.replace(/,/g, '');
+      }
+    } else {
+      // Ét komma → decimaltegn (svensk/europæisk format)
+      s = s.replace(',', '.');
+    }
+  }
+  // Kun punktum eller ingen separator: parseFloat håndterer det
+  return parseFloat(s);
+}
+
 const vendorSel = document.getElementById('vendorSelect');
 const itemSel = document.getElementById('itemCatSelect');
 
@@ -3350,18 +3393,14 @@ function handleFile(file) {
 
       let wb;
       if (isCSV) {
-        // Decode as text and parse via SheetJS CSV reader.
-        // This auto-handles delimiters (,/;/tab), quoted fields, and BOM.
+        // v2.9.5: Parse CSV med vores egen parser der bevarer rå strenge ("16215,09"),
+        // og byg sheet via aoa_to_sheet. SheetJS' egen CSV-læser fjerner kommaet og laver
+        // "16215,09" til tallet 1621509 — det undgår vi ved at holde cellerne som tekst.
+        // parsePrice() fortolker så komma som decimaltegn ved talbehandlingen.
         const text = new TextDecoder('utf-8').decode(data);
-        wb = XLSX.read(text, { type: 'string' });
-        // SheetJS gives the CSV sheet a default name like 'Sheet1'.
-        // Rename it so profiles can reference 'csv' explicitly.
-        const origName = wb.SheetNames[0];
-        if (origName !== 'csv') {
-          wb.Sheets['csv'] = wb.Sheets[origName];
-          wb.SheetNames[0] = 'csv';
-          delete wb.Sheets[origName];
-        }
+        const aoa = parseCSV(text);
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        wb = { SheetNames: ['csv'], Sheets: { csv: ws } };
       } else {
         wb = XLSX.read(data, { type: 'array' });
       }
@@ -3656,7 +3695,7 @@ async function processFileAsync() {
         }
         if (isEol) { eolFiltered++; continue; }
 
-        const priceNum = priceRaw !== null && priceRaw !== undefined && priceRaw !== '' ? parseFloat(priceRaw) : NaN;
+        const priceNum = priceRaw !== null && priceRaw !== undefined && priceRaw !== '' ? parsePrice(priceRaw) : NaN;
         if (isNaN(priceNum)) { nopriceFiltered++; continue; }
 
         const price = Math.round(priceNum * rate * discountFactor * 100) / 100;
@@ -3670,7 +3709,7 @@ async function processFileAsync() {
           shipping = Math.round(price * userShippingVal / 100);
         } else if (userShippingMode === 'none') {
           if (shipRaw !== null && shipRaw !== undefined && shipRaw !== '') {
-            const shipNum = parseFloat(shipRaw);
+            const shipNum = parsePrice(shipRaw);
             if (!isNaN(shipNum)) shipping = Math.round(shipNum * rate * 100) / 100;
           }
         }
