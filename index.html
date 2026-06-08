@@ -571,7 +571,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.9.6 — fix: EAN-match ignorerer ledende nuller (UPC=EAN)</footer>
+  <footer id="versionFooter">Version 2.9.7 — fix: CSV-varenummer uden ledende nul (matcher BC)</footer>
 </div>
 
 <script>
@@ -584,7 +584,7 @@ const DEFAULT_SHOPIFY_CATS = ["Aio/ACCESSIORIES","Aio/ANDROID","Aio/BRIGHTSIGN",
 
 // v2.9.1: Central version-konstant — ÉT sted at opdatere ved version-bump.
 // Footer (bund) bruger fuld streng; top-baren bruger kun nummeret (før " — ").
-const APP_VERSION_FULL = 'Version 2.9.6 — fix: EAN-match ignorerer ledende nuller (UPC=EAN)';
+const APP_VERSION_FULL = 'Version 2.9.7 — fix: CSV-varenummer uden ledende nul (matcher BC)';
 
 const DEFAULT_PPC = ["No Relationship","Price=Profit-Cost","Price=Cost+Profit"];
 
@@ -3478,6 +3478,7 @@ function handleFile(file) {
 
       window._sheetsData = sheetsData;
       window._profile = profile;
+      window._isCSV = isCSV;  // v2.9.7: så talbehandlingen ved om EAN skal nul-strippes (CSV) eller ej (xlsx)
       window._fileName = file.name.replace('.xlsx','');
       document.getElementById('fileInfo').style.display = 'block';
       document.getElementById('fileInfo').textContent =
@@ -3678,8 +3679,13 @@ async function processFileAsync() {
         const statusRaw = idxStatus >= 0 ? safeStr(r[idxStatus]) : '';
         const statusUp = statusRaw.toUpperCase();
         const priceRaw = r[idxPrice];
-        const gtinRaw = idxGTIN >= 0 ? normalizeEAN(r[idxGTIN]) : '';
-        const prodNoRaw = idxProdNo >= 0 ? normalizeEAN(r[idxProdNo]) : '';
+        // v2.9.7: For CSV strippes ledende nuller fra GTIN/Product Item No, så output-varenummeret
+        // matcher BC's eksisterende varer (BC bruger GTIN uden ledende nul, fx "606449166576").
+        // Tidligere fjernede SheetJS' CSV-læser nullerne automatisk; det gør parseCSV (v2.9.5) ikke,
+        // hvilket fik BC til at oprette dubletvarer. xlsx-profiler er uberørte (eanRaw = normalizeEAN).
+        const eanFn = window._isCSV ? eanMatchKey : normalizeEAN;
+        const gtinRaw = idxGTIN >= 0 ? eanFn(r[idxGTIN]) : '';
+        const prodNoRaw = idxProdNo >= 0 ? eanFn(r[idxProdNo]) : '';
         const model = safeStr(r[idxModel]);
         let desc = idxDesc >= 0 ? safeStr(r[idxDesc]) : '';
         if (!desc && idxDescFallback >= 0) {
