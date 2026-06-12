@@ -400,9 +400,9 @@ footer {
     <p class="section-title" style="margin-top: 1.5rem;">1. Upload prisliste</p>
     <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
       <div style="font-size: 14px; color: #666; margin-bottom: 8px;">Klik eller træk en Excel- eller CSV-fil hertil</div>
-      <div style="font-size: 12px; color: #999;">.xlsx og .csv filer understøttes</div>
+      <div style="font-size: 12px; color: #999;">.xlsx, .xls, .csv og .txt filer understøttes</div>
     </div>
-    <input type="file" id="fileInput" accept=".xlsx,.csv" style="display:none">
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.txt" style="display:none">
     <div id="fileInfo" style="display:none;" class="file-info"></div>
     <div id="fileError" style="display:none;" class="error-box"></div>
     <div id="profileInfo" style="display:none;" class="info-box"></div>
@@ -420,7 +420,7 @@ footer {
       </p>
       <div id="whitelistUploadRow" style="display:none;">
         <button class="btn-secondary" onclick="document.getElementById('whitelistInput').click()" style="padding: 6px 14px; font-size: 13px;">Upload positiv-liste</button>
-        <input type="file" id="whitelistInput" accept=".xlsx,.csv" style="display:none">
+        <input type="file" id="whitelistInput" accept=".xlsx,.xls,.csv,.txt" style="display:none">
         <span id="whitelistFileInfo" style="font-size: 12px; color: #666; margin-left: 10px;"></span>
       </div>
       <div id="whitelistError" style="display:none;" class="error-box"></div>
@@ -571,7 +571,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.9.7 — fix: CSV-varenummer uden ledende nul (matcher BC)</footer>
+  <footer id="versionFooter">Version 2.9.8 — fix: tekstfiler med .xls-endelse detekteres på indhold</footer>
 </div>
 
 <script>
@@ -584,7 +584,7 @@ const DEFAULT_SHOPIFY_CATS = ["Aio/ACCESSIORIES","Aio/ANDROID","Aio/BRIGHTSIGN",
 
 // v2.9.1: Central version-konstant — ÉT sted at opdatere ved version-bump.
 // Footer (bund) bruger fuld streng; top-baren bruger kun nummeret (før " — ").
-const APP_VERSION_FULL = 'Version 2.9.7 — fix: CSV-varenummer uden ledende nul (matcher BC)';
+const APP_VERSION_FULL = 'Version 2.9.8 — fix: tekstfiler med .xls-endelse detekteres på indhold';
 
 const DEFAULT_PPC = ["No Relationship","Price=Profit-Cost","Price=Cost+Profit"];
 
@@ -2848,6 +2848,19 @@ function parsePrice(raw) {
   return parseFloat(s);
 }
 
+// v2.9.8: Afgør om en fil er ÆGTE binær Excel ud fra magic bytes — ikke filendelsen.
+// Leverandører sender ofte tab-separeret TEKST med .xls-endelse (fx Trigono-Netgear).
+// Lader man SheetJS læse sådan en fil, ødelægges komma-decimaler og ledende nuller igen.
+//   .xlsx = ZIP-arkiv, starter med "PK" (0x50 0x4B)
+//   .xls  = OLE compound document, starter med D0 CF 11 E0
+// Alt andet behandles som tekst og går gennem parseCSV-vejen.
+function looksLikeBinaryExcel(bytes) {
+  if (!bytes || bytes.length < 4) return false;
+  if (bytes[0] === 0x50 && bytes[1] === 0x4B) return true; // "PK" → xlsx
+  if (bytes[0] === 0xD0 && bytes[1] === 0xCF && bytes[2] === 0x11 && bytes[3] === 0xE0) return true; // OLE → xls
+  return false;
+}
+
 const vendorSel = document.getElementById('vendorSelect');
 const itemSel = document.getElementById('itemCatSelect');
 
@@ -3027,9 +3040,10 @@ function handleWhitelistFile(file) {
   reader.onload = function(e) {
     try {
       let values = [];
-      const isCSV = file.name.toLowerCase().endsWith('.csv');
+      const wlBytes = new Uint8Array(e.target.result);
+      const isCSV = !looksLikeBinaryExcel(wlBytes); // v2.9.8: indhold, ikke filendelse
       if (isCSV) {
-        const text = new TextDecoder('utf-8').decode(new Uint8Array(e.target.result));
+        const text = new TextDecoder('utf-8').decode(wlBytes);
         const lines = text.split(/\r?\n/);
         for (const line of lines) {
           const first = line.split(/[,;\t]/)[0];
@@ -3400,7 +3414,18 @@ function handleFile(file) {
   reader.onload = function(e) {
     try {
       const data = new Uint8Array(e.target.result);
-      const isCSV = file.name.toLowerCase().endsWith('.csv');
+      // v2.9.8: Detektér på INDHOLD, ikke filendelse. Trigono-Netgear sender tab-separeret
+      // tekst med .xls-endelse — den skal gennem tekst-vejen, ellers er komma-decimal-fejlen
+      // (v2.9.5) og ledende-nul-fejlene (v2.9.6/2.9.7) tilbage ad bagdøren.
+      const isCSV = !looksLikeBinaryExcel(data);
+      const fname = file.name.toLowerCase();
+
+      // v2.9.8: Eksplicitte afvisningsregler — hellere afvise end gætte forkert.
+      // Regel 1: .xlsx er ALTID et ZIP-arkiv. Tekstindhold med .xlsx-endelse = defekt/omdøbt fil.
+      if (isCSV && fname.endsWith('.xlsx')) {
+        throw new Error('Filen har .xlsx-endelse men indeholder ikke ægte Excel-data. ' +
+          'Filen er muligvis defekt eller forkert omdøbt. Gem den som .csv/.txt hvis det er en tekstfil.');
+      }
 
       let wb;
       if (isCSV) {
@@ -3410,6 +3435,12 @@ function handleFile(file) {
         // parsePrice() fortolker så komma som decimaltegn ved talbehandlingen.
         const text = new TextDecoder('utf-8').decode(data);
         const aoa = parseCSV(text);
+        // Regel 2: Tekstfilen skal ligne en reel tabel — mindst 2 rækker og 2 kolonner.
+        // Afviser binært skrald, tomme filer og filer uden genkendeligt skilletegn.
+        if (aoa.length < 2 || !aoa[0] || aoa[0].length < 2) {
+          throw new Error('Filen kunne ikke genkendes som en tabel (kræver mindst 2 rækker og 2 kolonner ' +
+            'adskilt af komma, semikolon eller tab). Kontrollér at filen er en gyldig prisliste.');
+        }
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         wb = { SheetNames: ['csv'], Sheets: { csv: ws } };
       } else {
