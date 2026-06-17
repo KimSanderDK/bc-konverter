@@ -172,6 +172,25 @@ footer {
   z-index: 999; padding: 4rem 1rem 1rem;
   overflow-y: auto;
 }
+/* LG B2B preview-modal (v2.9.9) */
+#lgPreviewModal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: flex-start; justify-content: center;
+  z-index: 999; padding: 4rem 1rem 1rem;
+  overflow-y: auto;
+}
+.lg-field-row {
+  display: grid; grid-template-columns: 130px 70px 1fr; gap: 12px;
+  align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f0f0;
+}
+.lg-field-row label { font-size: 13px; font-weight: 600; color: #333; }
+.lg-field-row input.lg-col-input {
+  width: 60px; padding: 5px 7px; border: 1px solid #ccc; border-radius: 6px;
+  font-size: 14px; text-transform: uppercase; text-align: center;
+}
+.lg-field-row .lg-sample { font-size: 12px; color: #666; }
+.lg-field-row .lg-sample .lg-stack { color: #999; font-size: 11px; }
+.lg-field-row.lg-notfound input.lg-col-input { border-color: #c00; background: #fff5f5; }
 .backup-row {
   border: 1px solid #e0e0e0; border-radius: 8px;
   padding: 12px 14px; margin-bottom: 10px;
@@ -356,6 +375,39 @@ footer {
     <div id="restoreCategoryContent">
       <div class="spinner" style="margin: 2rem auto;"></div>
       <p style="text-align:center; color:#666; font-size:13px;">Indlæser backups…</p>
+    </div>
+  </div>
+</div>
+
+<!-- v2.9.9: LG B2B kolonne-bekræftelse (vises KUN i LG_B2B mode) -->
+<div id="lgPreviewModal" style="display:none;">
+  <div class="modal-card" style="max-width: 720px;">
+    <div class="modal-header">
+      <h2 style="margin:0; font-size:18px; font-weight:500;">LG B2B — bekræft kolonner</h2>
+      <button id="lgPreviewCloseBtn" type="button" class="modal-close" aria-label="Luk">×</button>
+    </div>
+    <p style="font-size:13px; color:#666; margin: 0 0 16px;">
+      Appen har fundet disse kolonner i "Digital Signage"-fanen ud fra deres overskrifter.
+      Tjek at de er rigtige — du kan overstyre et kolonnebogstav manuelt hvis LG har flyttet noget.
+      Konvertering starter først når du bekræfter.
+    </p>
+    <div id="lgPreviewContent"></div>
+    <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #eee; display:flex; gap:24px; flex-wrap:wrap; align-items:flex-end;">
+      <div>
+        <label style="display:block; font-size:13px; font-weight:600; margin-bottom:4px;">Profit % (margin)</label>
+        <div id="lgProfitDisplay" style="font-size:14px; color:#222;">—</div>
+        <div style="font-size:11px; color:#999;">fra trin 1</div>
+      </div>
+      <div>
+        <label for="lgDaekning" style="display:block; font-size:13px; font-weight:600; margin-bottom:4px;">Dækningsgrad % (tiers)</label>
+        <input type="text" id="lgDaekning" value="5" style="width:80px; padding:6px 8px; border:1px solid #ccc; border-radius:6px; font-size:14px;">
+        <div style="font-size:11px; color:#999;">standard 5%</div>
+      </div>
+    </div>
+    <div id="lgPreviewError" style="display:none; background:#fdeaea; border:1px solid #e0a0a0; border-radius:8px; padding:10px 12px; font-size:13px; color:#a01010; margin-top:1rem;"></div>
+    <div style="display:flex; gap:8px; margin-top:1.5rem; justify-content:flex-end;">
+      <button class="btn-secondary" id="lgPreviewCancelBtn" type="button">Annullér</button>
+      <button class="btn-primary" id="lgPreviewConfirmBtn" type="button">Bekræft og konvertér</button>
     </div>
   </div>
 </div>
@@ -571,7 +623,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.9.8 — fix: tekstfiler med .xls-endelse detekteres på indhold</footer>
+  <footer id="versionFooter">Version 2.10.0 — ny profil-mode: LG B2B Nordic (Calc Mode = LG_B2B)</footer>
 </div>
 
 <script>
@@ -584,7 +636,7 @@ const DEFAULT_SHOPIFY_CATS = ["Aio/ACCESSIORIES","Aio/ANDROID","Aio/BRIGHTSIGN",
 
 // v2.9.1: Central version-konstant — ÉT sted at opdatere ved version-bump.
 // Footer (bund) bruger fuld streng; top-baren bruger kun nummeret (før " — ").
-const APP_VERSION_FULL = 'Version 2.9.8 — fix: tekstfiler med .xls-endelse detekteres på indhold';
+const APP_VERSION_FULL = 'Version 2.10.0 — ny profil-mode: LG B2B Nordic (Calc Mode = LG_B2B)';
 
 const DEFAULT_PPC = ["No Relationship","Price=Profit-Cost","Price=Cost+Profit"];
 
@@ -3210,6 +3262,7 @@ function handleMasterFile(file) {
           const iDefPpc = colIdx('default ppc');
           const iUseWhitelist = colIdx('use whitelist');
           const iWhitelistCol = colIdx('whitelist match column');
+          const iCalcMode = colIdx('calc mode'); // v2.9.9: NY kolonne — tom = normal mode (bagudkompatibel)
 
           if (iName < 0) throw new Error('VendorProfiles-fanen mangler kolonnen "Profile Name"');
 
@@ -3242,7 +3295,8 @@ function handleMasterFile(file) {
               defaultItemCat: iDefItemCat >= 0 ? safeStr(r[iDefItemCat]) : '',
               defaultPPC: iDefPpc >= 0 ? safeStr(r[iDefPpc]) : '',
               useWhitelist: iUseWhitelist >= 0 ? safeStr(r[iUseWhitelist]).toLowerCase() === 'yes' : false,
-              whitelistMatchColumn: iWhitelistCol >= 0 ? safeStr(r[iWhitelistCol]) : 'ean code'
+              whitelistMatchColumn: iWhitelistCol >= 0 ? safeStr(r[iWhitelistCol]) : 'ean code',
+              calcMode: iCalcMode >= 0 ? safeStr(r[iCalcMode]).trim() : ''  // v2.9.9: tom = normal mode
             });
           }
         }
@@ -3446,6 +3500,7 @@ function handleFile(file) {
       } else {
         wb = XLSX.read(data, { type: 'array' });
       }
+      window._rawWb = wb; // v2.9.9: rå workbook til LG-findings-motor (kun LG bruger det; ren tilføjelse)
 
       // Check that all required sheets exist
       const missing = profile.sheets.filter(s => !wb.SheetNames.includes(s));
@@ -3597,6 +3652,495 @@ function validateStep1() {
   setTimeout(processFile, 150);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// v2.9.9: LG B2B Nordic — separat konverterings-spor (Calc Mode = LG_B2B)
+// Deler IKKE kode med den eksisterende processFileAsync. Alle hjælpere er
+// LG-specifikke (præfiks lg). Den eksisterende sti kalder ALDRIG herind.
+// ═══════════════════════════════════════════════════════════════════
+
+// Whitespace-normalisering til header-sammenligning: linjeskift midt i
+// headers ("Partner\nPrice\n (DKK)") gøres til ét mellemrum, trimmes, lowercases.
+function lgNormHeader(v) {
+  return (v === null || v === undefined ? '' : String(v)).replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+// Læs en celle (0-indexed række/kolonne) fra et SheetJS-ws.
+function lgCell(ws, r, c) {
+  const cell = ws[XLSX.utils.encode_cell({ r, c })];
+  return cell ? cell.v : null;
+}
+
+// Venstre-scan: find nærmeste ikke-tomme celle i en header-række til venstre
+// for (eller på) kolonne c. Bruges til merged-agtige blok-labels i række 5/6.
+function lgLeftScan(ws, r, c) {
+  for (let k = c; k >= 0; k--) {
+    const v = lgNormHeader(lgCell(ws, r, k));
+    if (v) return v;
+  }
+  return '';
+}
+
+// Kolonne-findings-motor. Returnerer { fields: {felt: {col, headerStack}}, errors: [] }.
+// Header-rækker (0-indexed): r5 = blok-label, r6 = WEEE-variant, r7 = valuta-niveau.
+function lgFindColumns(ws) {
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  const R5 = 5, R6 = 6, R7 = 7;
+
+  // Kandidat-indsamling pr. felt
+  const cand = { model: [], description: [], ean: [], cost: [], tier1: [] };
+
+  for (let c = 0; c <= range.e.c; c++) {
+    const r5 = lgNormHeader(lgCell(ws, R5, c));
+    const r7 = lgNormHeader(lgCell(ws, R7, c));
+    const blk5 = lgLeftScan(ws, R5, c);
+    const blk6 = lgLeftScan(ws, R6, c);
+
+    if (r5 === 'model') cand.model.push(c);
+    if (r7 === 'description') cand.description.push(c);
+    if (r7 === 'ean code') cand.ean.push(c);
+
+    // Kostpris: blok r5 har "partner plus", r6 "excl. weee", r7 == "partner price (dkk)"
+    if (blk5.indexOf('partner plus') !== -1 && blk6.indexOf('excl. weee') !== -1 && r7 === 'partner price (dkk)') {
+      cand.cost.push(c);
+    }
+    // Tier 1: blok r5 "partner price" UDEN "plus", r6 "excl. weee", r7 == "partner price (dkk)"
+    if (blk5.indexOf('partner price') !== -1 && blk5.indexOf('plus') === -1 &&
+        blk6.indexOf('excl. weee') !== -1 && r7 === 'partner price (dkk)') {
+      cand.tier1.push(c);
+    }
+  }
+
+  const labels = {
+    model: 'Model', description: 'Description', ean: 'EAN Code',
+    cost: 'Kostpris', tier1: 'Tier 1 grundpris'
+  };
+  const fields = {};
+  const errors = [];
+
+  for (const key of Object.keys(cand)) {
+    const hits = cand[key];
+    if (hits.length === 0) {
+      errors.push('Kunne ikke finde kolonnen "' + labels[key] + '" i LG-prislisten. Strukturen kan være ændret.');
+    } else if (hits.length > 1) {
+      const cols = hits.map(c => XLSX.utils.encode_col(c)).join(', ');
+      errors.push('Kolonnen "' + labels[key] + '" matchede FLERE kolonner (' + cols + '). Findings-reglen er tvetydig.');
+    } else {
+      const c = hits[0];
+      const stack = [lgLeftScan(ws, 5, c), lgLeftScan(ws, 6, c), lgNormHeader(lgCell(ws, 7, c))]
+        .filter(s => s).join(' / ');
+      fields[key] = { col: c, colLetter: XLSX.utils.encode_col(c), headerStack: stack };
+    }
+  }
+
+  return { fields, errors };
+}
+
+// Beregn tier-rabatter for én vare. Returnerer {normalSalg, tier1Salg, tier2Salg, tier1Pct, tier2Pct}.
+// Profit OG dækning er BEGGE margin (dividér, ikke gang):
+//   Normal salgspris = kost ÷ (1 − profit/100)      ← profit-margin, fx ÷0,80 ved 20%
+//   Tier 1 salgspris = tier1grund ÷ (1 − daekning/100) ← dækning, fx ÷0,95 ved 5%
+//   Tier 2 salgspris = kost       ÷ (1 − daekning/100)
+//   Tier-rabat % = (1 − tierSalg / normalSalg) × 100   ← det BC skal bruge
+// VIGTIGT: profit-margin (÷0,80) gælder KUN normalprisen; tiers bruger dæknings-margin (÷0,95).
+function lgComputeTiers(kost, tier1grund, profitPct, daekningPct) {
+  const normalSalg = kost / (1 - profitPct / 100);
+  const tier1Salg  = tier1grund / (1 - daekningPct / 100);
+  const tier2Salg  = kost / (1 - daekningPct / 100);
+  const tier1Pct = (1 - tier1Salg / normalSalg) * 100;
+  const tier2Pct = (1 - tier2Salg / normalSalg) * 100;
+  return { normalSalg, tier1Salg, tier2Salg, tier1Pct, tier2Pct };
+}
+
+// Gennemløb data-rækker, beregn tiers, kør negativ-rabat failsafe.
+// Returnerer { items: [...], negatives: [...] }. Kaster IKKE — kalderen håndterer failsafe.
+function lgBuildItems(ws, cols, profitPct, daekningPct) {
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  const DATA_START = 10; // 0-indexed; række 9 kan være kategori-overskrift
+  const items = [];
+  const negatives = [];
+
+  for (let r = DATA_START; r <= range.e.r; r++) {
+    const model = lgCell(ws, r, cols.model.col);
+    if (model === null || String(model).trim() === '') continue; // tom række
+    const kost = lgCell(ws, r, cols.cost.col);
+    const tier1grund = lgCell(ws, r, cols.tier1.col);
+    // Spring kategori-overskrifter over: kost/tier1 skal være tal
+    if (typeof kost !== 'number' || typeof tier1grund !== 'number') continue;
+
+    const t = lgComputeTiers(kost, tier1grund, profitPct, daekningPct);
+    const desc = lgCell(ws, r, cols.description.col);
+    const ean = lgCell(ws, r, cols.ean.col);
+
+    const item = {
+      model: String(model).trim(),
+      description: desc === null ? '' : String(desc).trim(),
+      ean: ean === null ? '' : String(ean).trim(),
+      cost: kost,
+      tier1Pct: Math.round(t.tier1Pct * 100) / 100,
+      tier2Pct: Math.round(t.tier2Pct * 100) / 100
+    };
+    items.push(item);
+
+    if (t.tier1Pct < 0 || t.tier2Pct < 0) {
+      negatives.push({
+        model: item.model,
+        tier1Pct: Math.round(t.tier1Pct * 100) / 100,
+        tier2Pct: Math.round(t.tier2Pct * 100) / 100
+      });
+    }
+  }
+
+  return { items, negatives };
+}
+
+// Konvertér kolonnebogstav (A, U, AC...) → 0-indexed kolonne-nummer. Returnerer -1 ved ugyldigt.
+function lgColLetterToIndex(letter) {
+  const s = String(letter).trim().toUpperCase();
+  if (!/^[A-Z]+$/.test(s)) return -1;
+  let n = 0;
+  for (let i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+  return n - 1;
+}
+
+// Stikprøve: første ikke-tomme dataværdi i en kolonne (fra DATA_START og ned).
+function lgSampleValue(ws, colIdx) {
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let r = 10; r <= range.e.r; r++) {
+    const v = lgCell(ws, r, colIdx);
+    if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+  }
+  return '(ingen værdi)';
+}
+
+// Vis preview-boksen og returnér en Promise. Resolver med { cols, daekning } ved bekræftelse,
+// rejecter ved annullering. Manuel overstyring talvalideres for pris-kolonner. Per-konvertering.
+function lgShowPreviewAndConfirm(ws, found) {
+  return new Promise((resolve, reject) => {
+    const modal = document.getElementById('lgPreviewModal');
+    const content = document.getElementById('lgPreviewContent');
+    const errBox = document.getElementById('lgPreviewError');
+    errBox.style.display = 'none';
+
+    // Vis aktuel profit fra trin 1
+    const profitRaw = (document.getElementById('profitPct').value || '').trim().replace(',', '.');
+    document.getElementById('lgProfitDisplay').textContent = profitRaw === '' ? '(ikke angivet)' : profitRaw + '%';
+
+    const fieldDefs = [
+      { key: 'model', label: 'Model' },
+      { key: 'description', label: 'Description' },
+      { key: 'ean', label: 'EAN Code' },
+      { key: 'cost', label: 'Kostpris (U)' },
+      { key: 'tier1', label: 'Tier 1 grund (AC)' }
+    ];
+
+    let html = '';
+    for (const fd of fieldDefs) {
+      const f = found.fields[fd.key];
+      const colVal = f ? f.colLetter : '';
+      const notFound = !f ? ' lg-notfound' : '';
+      const sample = f ? lgSampleValue(ws, f.col) : 'IKKE FUNDET';
+      const stack = f ? f.headerStack : 'kolonne ikke fundet — peg den ud manuelt';
+      html += '<div class="lg-field-row' + notFound + '" data-key="' + fd.key + '">' +
+        '<label>' + fd.label + '</label>' +
+        '<input class="lg-col-input" data-key="' + fd.key + '" value="' + colVal + '" placeholder="?">' +
+        '<div class="lg-sample">Stikprøve: <strong>' + _escapeHtmlSafe(String(sample)) + '</strong>' +
+        '<div class="lg-stack">' + _escapeHtmlSafe(stack) + '</div></div>' +
+        '</div>';
+    }
+    content.innerHTML = html;
+    modal.style.display = 'flex';
+
+    // Live-stikprøve når brugeren ændrer et kolonnebogstav
+    content.querySelectorAll('.lg-col-input').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const idx = lgColLetterToIndex(inp.value);
+        const row = inp.closest('.lg-field-row');
+        const sampleEl = row.querySelector('.lg-sample strong');
+        if (idx < 0) { sampleEl.textContent = '(ugyldigt bogstav)'; return; }
+        sampleEl.textContent = lgSampleValue(ws, idx);
+      });
+    });
+
+    function cleanup() {
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelBtn.removeEventListener('click', onCancel);
+      closeBtn.removeEventListener('click', onCancel);
+      modal.removeEventListener('click', onBackdrop);
+    }
+    function close() { modal.style.display = 'none'; cleanup(); }
+
+    function onConfirm() {
+      errBox.style.display = 'none';
+      // Saml valgte kolonner
+      const chosen = {};
+      const problems = [];
+      content.querySelectorAll('.lg-col-input').forEach(inp => {
+        const key = inp.dataset.key;
+        const idx = lgColLetterToIndex(inp.value);
+        if (idx < 0) { problems.push('Feltet "' + key + '" har et ugyldigt kolonnebogstav.'); return; }
+        chosen[key] = idx;
+      });
+      if (problems.length) { errBox.innerHTML = problems.join('<br>'); errBox.style.display = 'block'; return; }
+
+      // Talvalidering: kostpris og tier1 SKAL pege på en kolonne med tal-stikprøve
+      for (const key of ['cost', 'tier1']) {
+        const idx = chosen[key];
+        let foundNum = false;
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        for (let r = 10; r <= range.e.r && !foundNum; r++) {
+          const v = lgCell(ws, r, idx);
+          if (typeof v === 'number') foundNum = true;
+        }
+        if (!foundNum) {
+          errBox.innerHTML = 'Kolonnen for "' + key + '" (' + XLSX.utils.encode_col(idx) +
+            ') indeholder ingen tal-værdier. Vælg en pris-kolonne.';
+          errBox.style.display = 'block';
+          return;
+        }
+      }
+
+      // Validér dækningsgrad
+      const daekRaw = (document.getElementById('lgDaekning').value || '').trim().replace(',', '.');
+      const daek = parseFloat(daekRaw);
+      if (isNaN(daek) || daek < 0 || daek >= 100) {
+        errBox.innerHTML = 'Dækningsgrad skal være et tal mellem 0 og 100.';
+        errBox.style.display = 'block';
+        return;
+      }
+
+      // Byg cols-struktur i samme form som lgFindColumns' fields
+      const cols = {};
+      for (const key of Object.keys(chosen)) {
+        cols[key] = { col: chosen[key], colLetter: XLSX.utils.encode_col(chosen[key]) };
+      }
+      close();
+      resolve({ cols, daekning: daek });
+    }
+    function onCancel() { close(); reject(new Error('Konvertering annulleret af bruger.')); }
+    function onBackdrop(e) { if (e.target.id === 'lgPreviewModal') onCancel(); }
+
+    var confirmBtn = document.getElementById('lgPreviewConfirmBtn');
+    var cancelBtn = document.getElementById('lgPreviewCancelBtn');
+    var closeBtn = document.getElementById('lgPreviewCloseBtn');
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelBtn.addEventListener('click', onCancel);
+    closeBtn.addEventListener('click', onCancel);
+    modal.addEventListener('click', onBackdrop);
+  });
+}
+
+async function processLG_B2B() {
+  const prog = document.getElementById('progressFill');
+  const progTxt = document.getElementById('progressText');
+  const profile = window._profile;
+
+  // Find LG-fanen i det rå workbook (encode_cell-indeksering matcher Excel-kolonner).
+  const sheetName = (profile.sheets && profile.sheets[0]) || 'Digital Signage';
+  const ws = window._rawWb && window._rawWb.Sheets[sheetName];
+  if (!ws) {
+    throw new Error('Kunne ikke finde fanen "' + sheetName + '" i LG-filen.');
+  }
+
+  // 1) Kolonne-findning
+  const found = lgFindColumns(ws);
+  if (found.errors.length) {
+    throw new Error('LG kolonne-findning fejlede:\n• ' + found.errors.join('\n• '));
+  }
+
+  // 2) Preview + bekræft (henter også dækningsgrad; profit læses fra trin 1). Kan afvises.
+  let confirmed;
+  try {
+    confirmed = await lgShowPreviewAndConfirm(ws, found);
+  } catch (cancelErr) {
+    // Bruger annullerede — gå pænt tilbage til indstillinger uden fejl-larm
+    progTxt.textContent = 'Annulleret.';
+    goStep(1);
+    return;
+  }
+  const cols = confirmed.cols;
+  const daekning = confirmed.daekning;
+
+  // Profit fra trin 1 (margin)
+  const profitVal = parseFloat((document.getElementById('profitPct').value || '').trim().replace(',', '.'));
+  if (isNaN(profitVal) || profitVal <= 0 || profitVal >= 100) {
+    throw new Error('Profit % skal være et tal mellem 0 og 100 (margin). Angivet i trin 1.');
+  }
+
+  prog.style.width = '40%';
+  progTxt.textContent = 'Beregner tier-priser...';
+
+  // 3) Byg varer + beregn tiers
+  const { items, negatives } = lgBuildItems(ws, cols, profitVal, daekning);
+  if (items.length === 0) {
+    throw new Error('Ingen gyldige vare-rækker fundet i LG-prislisten.');
+  }
+
+  // 4) Negativ-rabat failsafe — stop FØR output hvis nogen tier-rabat er negativ
+  if (negatives.length) {
+    const lines = negatives.slice(0, 30).map(n =>
+      '• ' + n.model + ': Tier 1 = ' + n.tier1Pct + '%' + (n.tier2Pct < 0 ? ', Tier 2 = ' + n.tier2Pct + '%' : '')
+    );
+    const more = negatives.length > 30 ? '\n…og ' + (negatives.length - 30) + ' flere.' : '';
+    throw new Error(
+      'Konvertering stoppet: ' + negatives.length + ' vare(r) ville få negativ tier-rabat ved profit ' +
+      profitVal + '%. Hæv profit-procenten eller tjek prislisten.\n' + lines.join('\n') + more
+    );
+  }
+
+  // 5) Whitelist-filtrering (LG bruger positiv-liste) — genbruger samme mekanisme som normal vej
+  const useWhitelist = document.getElementById('useWhitelistToggle').checked && window._whitelistSet;
+  const whitelistSet = useWhitelist ? window._whitelistSet : null;
+  const matchedWhitelist = new Set();
+  let whitelistFiltered = 0;
+
+  // Defaults fra UI (sat i trin 1) — samme felter som den normale vej bruger
+  const vendor = vendorSel.value;
+  const brand = document.getElementById('brandCode').value;
+  const itemCat = itemSel.value;
+  const ppc = document.getElementById('ppcSelect').value;
+
+  prog.style.width = '70%';
+  progTxt.textContent = 'Bygger rækker...';
+
+  // 6) Byg den GLOBALE parsedRows i A-U format (samme som normal vej → genbruger output-pipeline-format)
+  parsedRows = [];
+  let categoryAutoFilledCount = 0;
+  for (const it of items) {
+    // Whitelist-tjek på EAN (tolerant for ledende nuller)
+    if (useWhitelist) {
+      const key = eanMatchKey(it.ean);
+      if (!key || !whitelistSet.has(key)) { whitelistFiltered++; continue; }
+      matchedWhitelist.add(key);
+    }
+    const productItemNo = it.ean || it.model;   // LG: GTIN som varenummer, ellers model
+    const gtin = it.ean;
+    const memCats = getCategoriesFor(gtin) || getCategoriesFor(productItemNo);
+    if (memCats) categoryAutoFilledCount++;
+    const colA = it.description + brand + productItemNo + vendor + it.model;
+    parsedRows.push({
+      A: colA, B: it.description, C: brand, D: productItemNo, E: gtin,
+      F: vendor, G: it.model, H: it.cost, I: '',
+      J: itemCat, K: ppc,
+      L: profitVal, M: it.tier1Pct, N: it.tier2Pct,
+      O: memCats ? (memCats[0] || '') : '', P: memCats ? (memCats[1] || '') : '',
+      Q: memCats ? (memCats[2] || '') : '', R: memCats ? (memCats[3] || '') : '',
+      S: memCats ? (memCats[4] || '') : '', T: memCats ? (memCats[5] || '') : '',
+      U: '',
+      _costOrig: it.cost,
+      _currency: 'DKK',
+      _isNew: false
+    });
+  }
+
+  if (parsedRows.length === 0) {
+    throw new Error('Ingen varer tilbage efter positiv-liste-filtrering. Tjek at positiv-listen matcher LG-prislistens EAN-numre.');
+  }
+
+  // Sæt stats som output-rendering forventer
+  window._sheetStats = [{ name: sheetName, count: parsedRows.length }];
+  if (useWhitelist) {
+    const notFound = [];
+    whitelistSet.forEach(id => { if (!matchedWhitelist.has(id)) notFound.push(id); });
+    window._whitelistStats = { total: whitelistSet.size, matched: matchedWhitelist.size, filtered: whitelistFiltered, notFound: notFound };
+  } else {
+    window._whitelistStats = null;
+  }
+
+  // 7) Render output (LG-specifik, men genbruger separate hjælpefunktioner)
+  await lgRenderOutput(profitVal, daekning, categoryAutoFilledCount);
+}
+
+// LG-specifik output-rendering. Bygger samme 21-kolonne BC-fil som den normale vej,
+// men er en separat funktion (deler ikke kode med processFileAsync). Genbruger de
+// separate hjælpere detectDuplicates, renderDuplicateWarning, _resetConfirmButton, goStep.
+async function lgRenderOutput(profitVal, daekning, categoryAutoFilledCount) {
+  const prog = document.getElementById('progressFill');
+  const progTxt = document.getElementById('progressText');
+
+  const workbook = new ExcelJS.Workbook();
+  const productSheet = workbook.addWorksheet('Product');
+  const bc_headers = ['No.','Description','Brand Code','Product Item No.','GTIN','Vendor No.','Vendor Model','Cost Price','Shipping Cost','Item Category Code','Price/Profit Calculation','Profit %','Discount % Tier 1','Discount % Tier 2','Shopify Category 1','Shopify Category 2','Shopify Category 3','Shopify Category 4','Shopify Category 5','Shopify Category 6','Notes'];
+  productSheet.addRow(bc_headers);
+  parsedRows.forEach(row => {
+    productSheet.addRow([
+      row.A, row.B, row.C, row.D, row.E, row.F, row.G, row.H, row.I,
+      row.J, row.K, row.L, row.M, row.N,
+      row.O || '', row.P || '', row.Q || '', row.R || '', row.S || '', row.T || '', row.U
+    ]);
+  });
+  const widths = [20,40,12,18,16,30,16,12,12,18,20,10,14,14,18,18,18,18,18,18,8];
+  widths.forEach((w, i) => { productSheet.getColumn(i + 1).width = w; });
+  productSheet.getRow(1).font = { bold: true };
+
+  // ShopifyCategories reference-fane + data-validering på O-T (samme som normal vej)
+  const catSheet = workbook.addWorksheet('ShopifyCategories');
+  catSheet.addRow(['Description']);
+  SHOPIFY_CATS.forEach(c => catSheet.addRow([c]));
+  catSheet.getColumn(1).width = 40;
+  catSheet.getRow(1).font = { bold: true };
+  const lastRow = parsedRows.length + 1;
+  const catRef = 'ShopifyCategories!$A$2:$A$' + (SHOPIFY_CATS.length + 1);
+  for (let col = 15; col <= 20; col++) {
+    for (let r = 2; r <= lastRow; r++) {
+      productSheet.getCell(r, col).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [catRef],
+        showErrorMessage: true, errorTitle: 'Ugyldig kategori', error: 'Vælg en kategori fra listen'
+      };
+    }
+  }
+
+  prog.style.width = '100%';
+  progTxt.textContent = 'Klar!';
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (window._currentBlobUrl) URL.revokeObjectURL(window._currentBlobUrl);
+  window._currentBlobUrl = URL.createObjectURL(blob);
+  window._currentRate = 1; // LG er DKK
+  window._currentEolFiltered = 0;
+
+  document.getElementById('totalCount').textContent = parsedRows.length;
+  document.getElementById('newCount').textContent = 0;
+  document.getElementById('eolCount').textContent = 0;
+  document.getElementById('nopriceCount').textContent = 0;
+
+  const dups = detectDuplicates(parsedRows);
+  renderDuplicateWarning(dups);
+
+  let whitelistHtml = '';
+  if (window._whitelistStats) {
+    const wls = window._whitelistStats;
+    whitelistHtml = '<br><b>Positiv-liste:</b> ' + wls.matched + '/' + wls.total + ' matchet';
+    if (wls.filtered > 0) whitelistHtml += ', ' + wls.filtered + ' varer filtreret fra';
+    if (wls.notFound.length > 0) {
+      whitelistHtml += '<br><span style="color:#c00;">&nbsp;&nbsp;' + wls.notFound.length +
+        ' identifikator(er) i positiv-listen blev ikke fundet i prislisten</span>';
+    }
+  }
+  const missingCats = parsedRows.length - categoryAutoFilledCount;
+  document.getElementById('settingsSummary').innerHTML =
+    '<b>Profil:</b> ' + (window._profile ? window._profile.name : '—') + ' <span style="color:#888;">(LG B2B-mode)</span><br>' +
+    '<b>Beregning:</b> Normal = kost ÷ ' + (1 - profitVal / 100).toFixed(2) + ' (profit ' + profitVal + '% margin)<br>' +
+    '<b>Tier-dækning:</b> ÷ ' + (1 - daekning / 100).toFixed(2) + ' (' + daekning + '%)<br>' +
+    '<b>L Profit %:</b> ' + profitVal + '<br>' +
+    '<b>M/N Tier-rabatter:</b> beregnet pr. vare<br>' +
+    '<b>Shopify-kategorier:</b> ' + categoryAutoFilledCount + ' auto-udfyldt' +
+    (missingCats > 0 ? ', ' + missingCats + ' mangler' : ' (alle varer dækket)') +
+    whitelistHtml;
+
+  document.getElementById('downloadBtn').onclick = () => {
+    const a = document.createElement('a');
+    a.href = window._currentBlobUrl;
+    a.download = (window._fileName || 'LG_prisliste') + '_BC.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  _resetConfirmButton();
+  setTimeout(() => goStep(3), 300);
+}
+
 function processFile() {
   processFileAsync().catch(err => {
     const progTxt = document.getElementById('progressText');
@@ -3616,6 +4160,17 @@ async function processFileAsync() {
   try {
     const sheetsData = window._sheetsData;
     const profile = window._profile;
+
+    // ═══════════════════════════════════════════════════════════════
+    // v2.9.9: LG B2B-forgrening. KUN profiler med Calc Mode = LG_B2B
+    // dirigeres til den separate processLG_B2B-funktion. Alle andre
+    // profiler (tom calcMode) fortsætter UÆNDRET ned i koden herunder.
+    // ═══════════════════════════════════════════════════════════════
+    const calcMode = (profile && profile.calcMode || '').trim();
+    if (calcMode === 'LG_B2B') {
+      return await processLG_B2B();
+    }
+    // ── HERFRA OG NED: AL EKSISTERENDE KODE STÅR URØRT ──
     const vendor = vendorSel.value;
     const brand = document.getElementById('brandCode').value;
     const itemCat = itemSel.value;
