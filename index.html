@@ -623,7 +623,7 @@ footer {
     </div>
   </div>
 
-  <footer id="versionFooter">Version 2.10.0 — ny profil-mode: LG B2B Nordic (Calc Mode = LG_B2B)</footer>
+  <footer id="versionFooter">Version 2.10.1 — rapport: ny fane "Ikke i prisliste"</footer>
 </div>
 
 <script>
@@ -636,7 +636,7 @@ const DEFAULT_SHOPIFY_CATS = ["Aio/ACCESSIORIES","Aio/ANDROID","Aio/BRIGHTSIGN",
 
 // v2.9.1: Central version-konstant — ÉT sted at opdatere ved version-bump.
 // Footer (bund) bruger fuld streng; top-baren bruger kun nummeret (før " — ").
-const APP_VERSION_FULL = 'Version 2.10.0 — ny profil-mode: LG B2B Nordic (Calc Mode = LG_B2B)';
+const APP_VERSION_FULL = 'Version 2.10.1 — rapport: ny fane "Ikke i prisliste"';
 
 const DEFAULT_PPC = ["No Relationship","Price=Profit-Cost","Price=Cost+Profit"];
 
@@ -4923,6 +4923,36 @@ async function generateUpdateReport() {
     ];
     dropSheet.getRow(1).font = { bold: true };
     dropped.forEach(it => dropSheet.addRow([it.id, it.model, it.desc, it.costOrig]));
+
+    // --- Fane: Ikke i prisliste (v2.10.1) ---
+    // Positiv-liste-identifikatorer der ikke blev fundet i prislisten. Rent additivt og
+    // betinget: springes helt over hvis ingen positiv-liste blev brugt, eller hvis alt
+    // blev matchet (samme mønster som den betingede "⚠ Dublette EAN"-fane). Gælder alle
+    // profiler med positiv-liste, ikke kun LG.
+    if (window._whitelistStats && window._whitelistStats.notFound.length > 0) {
+      const missSheet = workbook.addWorksheet('Ikke i prisliste');
+      missSheet.columns = [
+        { header: 'EAN/ID', width: 16 },
+        { header: 'Model', width: 22 },
+        { header: 'Beskrivelse', width: 50 },
+        { header: 'Sidste kendte pris (' + currency + ')', width: 22 }
+      ];
+      missSheet.getRow(1).font = { bold: true };
+      // Tolerant opslag mod forrige snapshot: ledende nuller ignoreres, som i whitelist-matchingen,
+      // så notFound-id'er (nul-strippede via eanMatchKey) matcher snapshot-id'er uanset ledende nul.
+      const prevByMatchKey = {};
+      for (const it of prevItems) {
+        if (it.id) { const k = eanMatchKey(it.id); if (k) prevByMatchKey[k] = it; }
+      }
+      for (const id of window._whitelistStats.notFound) {
+        const prev = prevByMatchKey[eanMatchKey(id)] || prevMap[id];
+        if (prev) {
+          missSheet.addRow([id, prev.model || '', prev.desc || '', prev.costOrig]);
+        } else {
+          missSheet.addRow([id, '', '', '']);
+        }
+      }
+    }
 
     // --- Fane: Prisstigninger ---
     const upSheet = workbook.addWorksheet('Prisstigninger');
